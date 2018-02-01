@@ -13,13 +13,15 @@ int main(int argc, char** argv) {
     stream.close();
 
     // write empty file
-    TfcFile file = TfcFile("container.tfc");
-    file.mode(TfcFileMode::CREATE);
+    Tfc::TfcFile file = Tfc::TfcFile("container.tfc");
+    file.mode(Tfc::TfcFileMode::CREATE);
     file.init();
-    file.mode(TfcFileMode::READ);
-    file.mode(TfcFileMode::EDIT);
-    file.addBlob(data, size);
-    file.mode(TfcFileMode::CLOSED);
+    file.mode(Tfc::TfcFileMode::READ);
+    file.mode(Tfc::TfcFileMode::EDIT);
+    file.addBlob(data, static_cast<uint64_t>(size));
+    file.mode(Tfc::TfcFileMode::READ);
+    file.readBlob(1);
+    file.mode(Tfc::TfcFileMode::CLOSED);
 
     return 0;
 

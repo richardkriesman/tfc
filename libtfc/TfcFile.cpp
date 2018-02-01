@@ -4,6 +4,8 @@
 #include "picosha2/picosha2.h"
 #include "TfcFile.h"
 
+using namespace Tfc;
+
 /**
  * Creates a new representation of a Tagged File Container (TFC) file, which can be switched between read and write
  * modes.
@@ -106,8 +108,16 @@ void TfcFile::analyze() {
     };
     int state = AnalyzeState::HEADER;
 
+    // temporary jump table struct
+    struct TempJumpEntry {
+        uint32_t nonce = 0;
+        std::streampos pos;
+    };
+
     // read based on state
     uint32_t tagCount;
+    uint32_t highestIndex;
+    TempJumpEntry* tempBlobJumps;
     while(state != AnalyzeState::END) {
         switch (state) {
             case AnalyzeState::HEADER:
@@ -127,6 +137,9 @@ void TfcFile::analyze() {
                 // skip over tags
                 for(uint32_t i = 0; i < tagCount; i++) {
 
+                    // skip nonce
+                    this->next(NONCE_LEN);
+
                     // read name length and skip over name
                     uint32_t nameLen = this->readUInt32();
                     this->next(nameLen);
@@ -141,21 +154,44 @@ void TfcFile::analyze() {
                 // read number of blobs
                 this->blobCount = this->readUInt32();
 
-                // alloc jump table memory
-                delete this->blobJumps;
-                this->blobJumps = new std::streampos[this->blobCount];
+                // alloc jump table memory (with indexes based on position, not nonce)
+                tempBlobJumps = new struct TempJumpEntry[this->blobCount];
 
                 // read blob table entries
+                highestIndex = 0;
                 for(uint32_t i = 0; i < this->blobCount; i++) {
-                    uint32_t startPos = this->readUInt32();
+                    TempJumpEntry tempEntry = TempJumpEntry();
+
+                    // get nonce
+                    tempEntry.nonce = this->readUInt32();
+                    if(tempEntry.nonce > highestIndex)
+                        highestIndex = tempEntry.nonce;
+
+                    // skip over the hash, we don't care about it right now
+                    this->next(HASH_LEN);
+
+                    // get start position
+                    tempEntry.pos = this->readUInt32();
 
                     // skip over tags, we don't care about them at the moment
                     uint32_t blobTagCount = this->readUInt32();
                     this->next(sizeof(uint32_t) * blobTagCount);
 
-                    // add to jump table
-                    this->blobJumps[i] = startPos;
+                    // add to temp jump table
+                    tempBlobJumps[i] = tempEntry;
                 }
+                this->nextBlobNonce = highestIndex + 1;
+
+                // alloc jump table memory
+                delete this->blobJumps;
+                this->blobJumps = new std::streampos[highestIndex];
+
+                // copy jump positions to new jump table
+                for(uint32_t i = 0; i < this->blobCount; i++)
+                    this->blobJumps[tempBlobJumps[i].nonce] = tempBlobJumps[i].pos;
+
+                // dealloc temporary jump table
+                delete [] tempBlobJumps;
 
                 state++;
                 break;
@@ -285,9 +321,13 @@ void TfcFile::jumpBack(std::streampos length) {
  * @param size The size of the blob in bytes.
  * @return The container index that was assigned to the blob.
  */
-uint32_t TfcFile::addBlob(char *bytes, std::streamsize size) {
+uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
     if(this->op != TfcFileMode::EDIT) // file must be in EDIT mode
         throw TfcFileException("File not in EDIT mode");
+
+    /*
+     * Move to end of blob table
+     */
 
     // jump to blob table
     this->jump(this->blobTablePos);
@@ -298,40 +338,40 @@ uint32_t TfcFile::addBlob(char *bytes, std::streamsize size) {
     // iterate through blob table entries (also get the start pos of the last blob)
     for(uint32_t i = 0; i < this->blobCount - 1; i++) {
 
-        // skip over start pos
-        this->next(sizeof(uint64_t));
+        // skip over nonce, hash, and start pos
+        this->next(sizeof(uint32_t) + sizeof(uint64_t) + HASH_LEN);
 
         // skip over tags
         uint32_t tagCount = this->readUInt32();
         this->next(sizeof(uint32_t) * tagCount);
     }
 
-    // get end of file position from start
-    std::streampos currentPos = this->stream.tellg();
-    this->jumpBack(0);
-    auto newBlobStart = static_cast<uint64_t>(this->stream.tellg());
-    this->stream.seekg(currentPos);
+    /*
+     * Write blob table entry
+     */
 
-    // create new blob table entry
-    this->writeUInt64(newBlobStart); // write start pos
-    this->writeUInt32(0); // write tag count (0 for new files)
+    // write and increment the nonce
+    this->writeUInt32(this->nextBlobNonce++);
 
-    // jump to start pos of the last blob and skip over last blob
-    this->stream.seekg(newBlobStart);
-    if(this->blobCount - 1 > 0) {
-        this->next(HASH_LEN); // skip over sha256 hash
-
-        // read byte length and skip over that
-        uint64_t byteLen = this->readUInt64();
-        this->next(byteLen);
-    }
-
-    // calculate and write sha256 hash for file
+    // calculate and write sha256 hash
     std::vector<unsigned char> hash(32);
     picosha2::hash256(bytes, bytes + size, hash.begin(), hash.end());
     this->stream.write(reinterpret_cast<char*>(hash.data()), 32);
     if(this->stream.fail())
         throw TfcFileException("Failed to write blob hash");
+
+    // write start pos and tag count
+    std::streampos startPosPos = this->stream.tellg();
+    this->writeUInt64(0); // write start pos (0 for right now, we'll change this after we add the blob)
+    this->writeUInt32(0); // write tag count (0 for new files)
+
+    /*
+     * Write blob bytes
+     */
+
+    // jump to end of file
+    this->jumpBack(0);
+    auto blobStartPos = static_cast<uint64_t>(this->stream.tellg());
 
     // write blob size
     this->writeUInt64(static_cast<uint64_t>(size));
@@ -341,22 +381,50 @@ uint32_t TfcFile::addBlob(char *bytes, std::streamsize size) {
     if(this->stream.fail())
         throw TfcFileException("Failed to write blob data");
 
+    /*
+     * Update blob start pos
+     */
+
+    // jump back to start pos field
+    this->stream.seekg(startPosPos);
+
+    // write blob start pos
+    this->writeUInt64(blobStartPos);
+
     // flush buffer to disk
     this->stream.flush();
 }
 
 /**
- * Creates a new TfcFileException, for errors related to TfcFile.
+ * READ operation. Reads a blob with the specified nonce.
  *
- * @param message A message detailing the error.
+ * @param nonce The nonce of the blob to read.
+ * @return A TfcFileBlob struct containing the size and char* to the data. Null if the nonce does not exist.
  */
-TfcFileException::TfcFileException(const std::string &message) {
-    this->message = message;
-}
+TfcFileBlob_t* TfcFile::readBlob(uint32_t nonce) {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
 
-/**
- * Returns a message detailing the error.
- */
-const char* TfcFileException::what() const throw() {
-    return this->message.c_str();
+    // try to get the blob table entry
+    if(nonce - 1 >= this->blobCount)
+        return nullptr;
+
+    // create a new blob struct
+    auto* blob = new TfcFileBlob_t();
+
+    // jump to blob file
+    auto startPos = static_cast<uint64_t>(this->blobJumps[nonce]);
+    this->jump(startPos);
+
+    // read blob length
+    blob->size = this->readUInt64();
+
+    // allocate memory for storing the blob bytes
+    blob->data = new char[blob->size];
+
+    // copy bytes into the byte array
+    this->stream.read(blob->data, blob->size);
+
+    return blob;
+
 }

@@ -15,6 +15,7 @@ root {
         field    32    int      tag_count
 
         section tag [] {
+            field    32              int      nonce
             field    32              int      name_length
             field    name_length     string   name
         }
@@ -25,8 +26,10 @@ root {
         field    32     int   blob_count
 
         section blob_header[] {
-            field    64     int      start_pos
-            field    32     int      tag_count
+            field    32     int       nonce
+            field    256    stream    sha256_hash
+            field    64     int       start_pos
+            field    32     int       tag_count
 
             section tag_reference [] {
                 field    32     int    index => root::tags::tag::index
@@ -37,9 +40,8 @@ root {
     section blobs encrypted => header::encrypted_dek {
 
         section file [] {
-            field    256            stream     sha256_hash
-            field    64             int        byte_length
-            field    byte_length    stream     data
+            field    64             int        data_length
+            field    data_length    stream     data
         }
 
     }
