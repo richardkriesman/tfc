@@ -163,7 +163,7 @@ void TfcFile::analyze() {
                     // get nonce
                     uint32_t nonce = this->readUInt32();
 
-                    // skip over the hash, we don't care about it right now
+                    // read the hash
                     char hash[HASH_LEN];
                     this->stream.read(hash, sizeof(hash));
 
@@ -422,4 +422,16 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
 
     return blob;
 
+}
+
+/**
+ * READ operation. Returns a list of blob table entries.
+ *
+ * @return A pointer to a JumpTableList containing the count and an array of pointers to the entries.
+ */
+JumpTableList* TfcFile::listBlobs() {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    return this->jumpTable->list();
 }

@@ -10,12 +10,17 @@ namespace Tfc {
     class JumpTableRow {
 
     public:
-        JumpTableRow(uint32_t nonce, char* hash, std::streampos start);
+        JumpTableRow(uint32_t nonce, const char* hash, std::streampos start);
 
         uint32_t nonce;         // unique identifier for this blob
         char hash[32];          // SHA256 hash
         std::streampos start;   // starting byte position of the blob
 
+    };
+
+    struct JumpTableList {
+        uint32_t count;
+        JumpTableRow** rows;
     };
 
     class JumpTable {
@@ -24,6 +29,7 @@ namespace Tfc {
         void add(JumpTableRow* row);
         JumpTableRow* get(uint32_t nonce);
         uint32_t size();
+        JumpTableList* list();
 
     private:
         uint32_t _size = 0;

@@ -39,6 +39,8 @@ namespace Tfc {
 
         TfcFileBlob* readBlob(uint32_t nonce);
 
+        JumpTableList* listBlobs();
+
     private:
 
         // file constants
