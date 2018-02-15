@@ -165,7 +165,8 @@ void help() {
                    "\t%-25s\tdeletes a file from the container (TBI)\n"
                    "\t%-25s\tadds a tag to a file (TBI)\n"
                    "\t%-25s\tremoves a tag from a file (TBI)\n"
-                   "\t%-25s\tsearches for files matching all of the tags (TBI)\n",
+                   "\t%-25s\tsearches for files matching all of the tags (TBI)\n"
+                   "\t%-25s\tlists all files by their ID and hash\n",
     "version", "help", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
-           "tag <id> <tag>", "untag <id> <tag>", "search <tag> ...");
+           "tag <id> <tag>", "untag <id> <tag>", "search <tag> ...", "list");
 }
