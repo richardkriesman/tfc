@@ -1,29 +1,117 @@
 #include <iostream>
 #include "libtfc/TfcFile.h"
 
+void help();
+uint32_t stash(Tfc::TfcFile* file, const std::string &filename);
+void unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename);
+
 int main(int argc, char** argv) {
 
-    // read in test file
+    // check for proper number of arguments
+    if(argc < 3) {
+        help();
+        return 1;
+    }
+
+    // try to open a file
+    Tfc::TfcFile* file = nullptr;
+    try {
+        std::string filename(argv[1]);
+        std::string extension(".tfc");
+        file = new Tfc::TfcFile(filename + extension);
+    } catch (Tfc::TfcFileException &ex) {
+        std::cerr << "tfc: " << ex.what() << "\n";
+        return 1;
+    }
+
+    // handle commands
+    std::string command = std::string(argv[2]);
+    try {
+        if (command == "help") { // help command
+            help();
+        } else if (command == "init" && argc >= 3) { // init command
+            file->mode(Tfc::TfcFileMode::CREATE);
+            file->init();
+            file->mode(Tfc::TfcFileMode::CLOSED);
+            std::cout << "Created container file at " << argv[1] << "\n";
+        } else if (command == "stash" && argc >= 4) { // stash command
+            uint32_t nonce = stash(file, argv[3]);
+            std::cout << "Stashed " << argv[3] << " with ID " << nonce << "\n";
+        } else if (command == "unstash" && argc >= 5) { // unstash command
+            int32_t nonce = std::stoi(argv[3]);
+            if(nonce < 0)
+                throw Tfc::TfcFileException("File IDs cannot be negative");
+            unstash(file, static_cast<uint32_t>(nonce), argv[4]);
+            std::cout << "Unstashed " << nonce << " into " << argv[4];
+        } else { // unknown command
+            help();
+            return 1;
+        }
+    } catch (Tfc::TfcFileException &ex) {
+        std::cerr << "tfc: " << ex.what() << "\n";
+        return 1;
+    } catch (std::exception &ex) {
+        std::cerr << "tfc: " << ex.what() << "\n";
+        return 1;
+    }
+
+    // clean up
+    delete file;
+
+    return 0;
+
+}
+
+/**
+ * Reads a file from the filesystem
+ *
+ * @param file The TFC file object
+ * @param filename The path of the file to stash
+ * @return The ID that was assigned to the stashed file.
+ */
+uint32_t stash(Tfc::TfcFile* file, const std::string &filename) {
+
+    // read in file
     std::ifstream stream;
-    stream.open("/home/richard/Desktop/tfc-test.jpg", std::ios::binary | std::ios::in | std::ios::ate);
+    stream.open(filename, std::ios::binary | std::ios::in | std::ios::ate);
+    if(stream.fail())
+        throw Tfc::TfcFileException("Failed to open file " + filename + " for reading");
+
+    // read stream size
     std::streamsize size = stream.tellg();
     stream.seekg(0, stream.beg);
+
+    // read data
     auto* data = new char[size];
     stream.read(data, size);
     stream.close();
 
-    // write empty file
-    Tfc::TfcFile file = Tfc::TfcFile("container.tfc");
-    file.mode(Tfc::TfcFileMode::CREATE);
-    file.init();
-    file.mode(Tfc::TfcFileMode::READ);
-    file.mode(Tfc::TfcFileMode::EDIT);
-    file.addBlob(data, static_cast<uint64_t>(size));
-    file.mode(Tfc::TfcFileMode::READ);
-    file.readBlob(1);
-    file.mode(Tfc::TfcFileMode::CLOSED);
+    // add data as blob
+    file->mode(Tfc::TfcFileMode::READ);
+    file->mode(Tfc::TfcFileMode::EDIT);
+    uint32_t nonce = file->addBlob(data, static_cast<uint64_t>(size));
+    file->mode(Tfc::TfcFileMode::CLOSED);
 
-    return 0;
+    return nonce;
+}
+
+void unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename) {
+
+    // read the blob from the container
+    file->mode(Tfc::TfcFileMode::READ);
+    Tfc::TfcFileBlob* blob = file->readBlob(id);
+    file->mode(Tfc::TfcFileMode::CLOSED);
+    if(blob == nullptr)
+        throw Tfc::TfcFileException("No file with that ID exists");
+
+    // open the file for writing
+    std::ofstream stream(filename, std::ios::out | std::ios::binary);
+    if(stream.fail())
+        throw Tfc::TfcFileException("Failed to open file " + filename + " for writing");
+    stream.write(blob->data, blob->size);
+    stream.close();
+
+    delete blob;
 
 }
 
@@ -31,14 +119,18 @@ int main(int argc, char** argv) {
  * Prints help text
  */
 void help() {
-    printf("Usage: tfc <command>\n"
-                   "\t--version\tprints the version\n"
-                   "\t--help\t\tprints this help page\n\n"
+    printf("Tagged File Containers\n\n"
+                   "Usage: tfc <filename> <command>\n"
+                   "\t%-25s\tprints the version\n"
+                   "\t%-25s\tprints this help page\n\n"
                    "Commands:\n"
-                   "\tstash <filename>\tcopies a file into the container\n"
-                   "\tunstash <id>\t\tcopies a file out of the container\n"
-                   "\tdelete <id>\t\t\tdeletes a file from the container\n"
-                   "\ttag <id> <tag>\t\tadds a tag to a file\n"
-                   "\tuntag <id> <tag>\tremoves a tag from a file\n"
-                   "\tsearch <tag> ...\tsearches for files matching all of the tags\n");
+                   "\t%-25s\tcreates a new container file\n"
+                   "\t%-25s\tcopies a file into the container\n"
+                   "\t%-25s\tcopies a file out of the container\n"
+                   "\t%-25s\tdeletes a file from the container\n"
+                   "\t%-25s\tadds a tag to a file\n"
+                   "\t%-25s\tremoves a tag from a file\n"
+                   "\t%-25s\tsearches for files matching all of the tags\n",
+    "version", "help", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
+           "tag <id> <tag>", "untag <id> <tag>", "search <tag> ...");
 }

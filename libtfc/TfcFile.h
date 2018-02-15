@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 
 #include "TfcFileException.h"
+#include "JumpTable.h"
 
 namespace Tfc {
 
@@ -17,10 +18,10 @@ namespace Tfc {
         EDIT
     };
 
-    typedef struct TfcFileBlob {
+    struct TfcFileBlob {
         uint64_t size;
         char* data;
-    } TfcFileBlob_t;
+    };
 
 
     class TfcFile {
@@ -36,7 +37,7 @@ namespace Tfc {
 
         uint32_t addBlob(char* bytes, uint64_t size);
 
-        TfcFileBlob_t* readBlob(uint32_t nonce);
+        TfcFileBlob* readBlob(uint32_t nonce);
 
     private:
 
@@ -51,18 +52,23 @@ namespace Tfc {
         const int HASH_LEN = 32;
         const int NONCE_LEN = 4;
 
+        // file vars
         TfcFileMode op;         // current operation mode
         std::string filename;   // name of the file
         std::fstream stream;    // file stream
 
+        // file section byte positions
         std::streampos headerPos;     // start position of header
         std::streampos tagTablePos;   // start position of tag table
         std::streampos blobTablePos;  // start position of blob table
         std::streampos blobListPos;   // start position of blob list
 
-        uint32_t blobCount;                   // number of blobs in the file
-        uint32_t nextBlobNonce;               // next nonce for an added blob
-        std::streampos *blobJumps = nullptr;  // dynamic map of blob index to byte position
+        // next auto-increment table nonces
+        uint32_t tagTableNextNonce;   // next nonce for a new tag
+        uint32_t blobTableNextNonce;  // next nonce for a new blob
+
+        // in-memory jump table for blobs
+        JumpTable* jumpTable = nullptr;
 
         void reset();
 

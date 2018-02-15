@@ -108,16 +108,9 @@ void TfcFile::analyze() {
     };
     int state = AnalyzeState::HEADER;
 
-    // temporary jump table struct
-    struct TempJumpEntry {
-        uint32_t nonce = 0;
-        std::streampos pos;
-    };
-
     // read based on state
     uint32_t tagCount;
-    uint32_t highestIndex;
-    TempJumpEntry* tempBlobJumps;
+    uint32_t blobCount;
     while(state != AnalyzeState::END) {
         switch (state) {
             case AnalyzeState::HEADER:
@@ -130,6 +123,9 @@ void TfcFile::analyze() {
                 break;
             case AnalyzeState::TAG_TABLE:
                 this->tagTablePos = this->stream.tellg(); // tag table position
+
+                // read next tag nonce
+                this->tagTableNextNonce = this->readUInt32();
 
                 // read tag count
                 tagCount = this->readUInt32();
@@ -151,47 +147,36 @@ void TfcFile::analyze() {
             case AnalyzeState::BLOB_TABLE:
                 this->blobTablePos = this->stream.tellg();
 
-                // read number of blobs
-                this->blobCount = this->readUInt32();
+                // read next blob nonce
+                this->blobTableNextNonce = this->readUInt32();
 
-                // alloc jump table memory (with indexes based on position, not nonce)
-                tempBlobJumps = new struct TempJumpEntry[this->blobCount];
+                // read number of blobs
+                blobCount = this->readUInt32();
+
+                // allocate new jump table (and dealloc any old one)
+                delete this->jumpTable;
+                this->jumpTable = new JumpTable();
 
                 // read blob table entries
-                highestIndex = 0;
-                for(uint32_t i = 0; i < this->blobCount; i++) {
-                    TempJumpEntry tempEntry = TempJumpEntry();
+                for(uint32_t i = 0; i < blobCount; i++) {
 
                     // get nonce
-                    tempEntry.nonce = this->readUInt32();
-                    if(tempEntry.nonce > highestIndex)
-                        highestIndex = tempEntry.nonce;
+                    uint32_t nonce = this->readUInt32();
 
                     // skip over the hash, we don't care about it right now
-                    this->next(HASH_LEN);
+                    char hash[HASH_LEN];
+                    this->stream.read(hash, sizeof(hash));
 
                     // get start position
-                    tempEntry.pos = this->readUInt64();
+                    uint64_t start = this->readUInt64();
 
                     // skip over tags, we don't care about them at the moment
                     uint32_t blobTagCount = this->readUInt32();
                     this->next(sizeof(uint32_t) * blobTagCount);
 
-                    // add to temp jump table
-                    tempBlobJumps[i] = tempEntry;
+                    // add to blob to jump table
+                    this->jumpTable->add(new JumpTableRow(nonce, hash, start));
                 }
-                this->nextBlobNonce = highestIndex + 1;
-
-                // alloc jump table memory
-                delete this->blobJumps;
-                this->blobJumps = new std::streampos[highestIndex];
-
-                // copy jump positions to new jump table
-                for(uint32_t i = 0; i < this->blobCount; i++)
-                    this->blobJumps[tempBlobJumps[i].nonce] = tempBlobJumps[i].pos;
-
-                // dealloc temporary jump table
-                delete [] tempBlobJumps;
 
                 state++;
                 break;
@@ -227,10 +212,12 @@ void TfcFile::init() {
         this->writeUInt32(0x0);
     }
 
-    // write tag table - for an empty container, this is just the count
+    // write tag table - for an empty container, this is the next nonce (1) and the count
+    this->writeUInt32(1);
     this->writeUInt32(0);
 
-    // write blob table - for an empty container, this is just the blob count
+    // write blob table - for an empty container, this is the next nonce (1) and the count
+    this->writeUInt32(1);
     this->writeUInt32(0);
 
     // nothing to write for the blob list, just flush the buffer
@@ -332,11 +319,14 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
     // jump to blob table
     this->jump(this->blobTablePos);
 
-    // update blob count
-    this->writeUInt32(++this->blobCount);
+    // update next nonce
+    this->writeUInt32(this->blobTableNextNonce++);
 
-    // iterate through blob table entries (also get the start pos of the last blob)
-    for(uint32_t i = 0; i < this->blobCount - 1; i++) {
+    // update blob count
+    this->writeUInt32(this->jumpTable->size() + 1);
+
+    // iterate through blob table entries
+    for(uint32_t i = 0; i < this->jumpTable->size(); i++) {
 
         // skip over nonce, hash, and start pos
         this->next(sizeof(uint32_t) + sizeof(uint64_t) + HASH_LEN);
@@ -351,7 +341,7 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
      */
 
     // write and increment the nonce
-    this->writeUInt32(this->nextBlobNonce++);
+    this->writeUInt32(this->blobTableNextNonce - 1);
 
     // calculate and write sha256 hash
     std::vector<unsigned char> hash(32);
@@ -393,6 +383,8 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
 
     // flush buffer to disk
     this->stream.flush();
+
+    return this->blobTableNextNonce - 1;
 }
 
 /**
@@ -401,19 +393,22 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
  * @param nonce The nonce of the blob to read.
  * @return A TfcFileBlob struct containing the size and char* to the data. Null if the nonce does not exist.
  */
-TfcFileBlob_t* TfcFile::readBlob(uint32_t nonce) {
+TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
     if(this->op != TfcFileMode::READ)
         throw TfcFileException("File not in READ mode");
 
     // try to get the blob table entry
-    if(nonce - 1 >= this->blobCount)
+    if(nonce > this->jumpTable->size())
         return nullptr;
 
     // create a new blob struct
-    auto* blob = new TfcFileBlob_t();
+    auto* blob = new TfcFileBlob();
 
     // jump to blob file
-    auto startPos = static_cast<uint64_t>(this->blobJumps[nonce]);
+    JumpTableRow* row = this->jumpTable->get(nonce);
+    if(row == nullptr)
+        throw TfcFileException("ID not not found");
+    auto startPos = static_cast<uint64_t>(row->start);
     this->jump(startPos);
 
     // read blob length

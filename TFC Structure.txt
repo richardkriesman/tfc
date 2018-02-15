@@ -6,33 +6,35 @@ File specification
 root {
 
     section header plaintext {
-        field    32    int      magic_number := 0xE621126E
-        field    32    int      file_version := 0x1
-        field    256   stream   encrypted_dek
+        field    32    uint      magic_number := 0xE621126E
+        field    32    uint      file_version := 0x1
+        field    256   stream    encrypted_dek
     }
 
     section tag_table encrypted => header::encrypted_dek {
-        field    32    int      tag_count
+        field    32    uint      next_nonce
+        field    32    uint      tag_count
 
         section tag [] {
-            field    32              int      nonce
-            field    32              int      name_length
-            field    name_length     string   name
+            field    32              uint      nonce
+            field    32              uint      name_length
+            field    name_length     string    name
         }
 
     }
 
     section blob_table encrypted => header::encrypted_dek {
-        field    32     int   blob_count
+        field    32     uint   next_nonce
+        field    32     uint   blob_count
 
         section blob_header[] {
-            field    32     int       nonce
-            field    256    stream    sha256_hash
-            field    64     int       start_pos
-            field    32     int       tag_count
+            field    32     uint       nonce
+            field    256    stream     sha256_hash
+            field    64     uint       start_pos
+            field    32     uint       tag_count
 
             section tag_reference [] {
-                field    32     int    index => root::tags::tag::index
+                field    32     uint    index => root::tags::tag::index
             }
         }
     }
@@ -40,7 +42,7 @@ root {
     section blobs encrypted => header::encrypted_dek {
 
         section file [] {
-            field    64             int        data_length
+            field    64             uint       data_length
             field    data_length    stream     data
         }
 
