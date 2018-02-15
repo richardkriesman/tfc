@@ -171,7 +171,7 @@ void TfcFile::analyze() {
                     this->next(HASH_LEN);
 
                     // get start position
-                    tempEntry.pos = this->readUInt32();
+                    tempEntry.pos = this->readUInt64();
 
                     // skip over tags, we don't care about them at the moment
                     uint32_t blobTagCount = this->readUInt32();
