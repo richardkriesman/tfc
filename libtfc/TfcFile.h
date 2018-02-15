@@ -30,16 +30,14 @@ namespace Tfc {
         explicit TfcFile(const std::string &filename);
 
         void mode(TfcFileMode mode);
-
         TfcFileMode getMode();
-
         void init();
-
         uint32_t addBlob(char* bytes, uint64_t size);
-
         TfcFileBlob* readBlob(uint32_t nonce);
-
         JumpTableList* listBlobs();
+        bool isEncrypted();
+        bool isUnlocked();
+        bool doesExist();
 
     private:
 
@@ -55,9 +53,12 @@ namespace Tfc {
         const int NONCE_LEN = 4;
 
         // file vars
-        TfcFileMode op;         // current operation mode
-        std::string filename;   // name of the file
-        std::fstream stream;    // file stream
+        TfcFileMode op;           // current operation mode
+        std::string filename;     // name of the file
+        std::fstream stream;      // file stream
+        bool encrypted = false;   // whether the file is encrypted
+        bool unlocked = true;     // whether the file is unlocked (true if unencrypted)
+        bool exists = false;      // whether the file exists in the filesystem
 
         // file section byte positions
         std::streampos headerPos;     // start position of header
@@ -89,6 +90,7 @@ namespace Tfc {
         void jump(std::streampos length);
 
         void jumpBack(std::streampos length);
+
     };
 
 }

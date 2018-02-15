@@ -15,6 +15,10 @@ using namespace Tfc;
 TfcFile::TfcFile(const std::string &filename){
     this->op = TfcFileMode::CLOSED;
     this->filename = filename;
+
+    // determine if the file exists
+    std::ifstream stream(this->filename);
+    this->exists = stream.good();
 }
 
 /**
@@ -55,8 +59,6 @@ void TfcFile::mode(TfcFileMode mode) {
                 throw TfcFileException("Failed to open a new file");
             this->op = TfcFileMode::CREATE;
             break;
-
-            //
 
         case TfcFileMode::EDIT: // open file for editing
             if(this->op != TfcFileMode::CLOSED)
@@ -111,13 +113,30 @@ void TfcFile::analyze() {
     // read based on state
     uint32_t tagCount;
     uint32_t blobCount;
+    uint32_t version;
     while(state != AnalyzeState::END) {
         switch (state) {
             case AnalyzeState::HEADER:
                 this->headerPos = this->stream.tellg(); // header position
 
                 // skip to tag table
-                this->stream.seekg(MAGIC_NUMBER_LEN + FILE_VERSION_LEN + DEK_LEN, this->stream.beg);
+                this->stream.seekg(MAGIC_NUMBER_LEN);
+
+                // check file version
+                version = this->readUInt32();
+                if(version > FILE_VERSION)
+                    throw TfcFileException("tfc: Container version mismatch. Must be <= " + FILE_VERSION);
+
+                // check if file is encrypted (DEK will be all 0s)
+                char dek[32];
+                this->stream.read(dek, DEK_LEN);
+                for(char byte : dek) {
+                    if (byte != 0x0) {
+                        this->encrypted = true;
+                        this->unlocked = false;
+                        break;
+                    }
+                }
 
                 state++;
                 break;
@@ -222,6 +241,9 @@ void TfcFile::init() {
 
     // nothing to write for the blob list, just flush the buffer
     this->stream.flush();
+
+    // the file exists now, update state
+    this->exists = true;
 }
 
 /**
@@ -434,4 +456,25 @@ JumpTableList* TfcFile::listBlobs() {
         throw TfcFileException("File not in READ mode");
 
     return this->jumpTable->list();
+}
+
+/**
+ * Whether the file is encrypted.
+ */
+bool TfcFile::isEncrypted() {
+    return this->encrypted;
+}
+
+/**
+ * Whether the file has been unlocked. If there is no encryption on the file, this will be true.
+ */
+bool TfcFile::isUnlocked() {
+    return this->unlocked;
+}
+
+/**
+ * Whether the file exists in the filesystem.
+ */
+bool TfcFile::doesExist() {
+    return this->exists;
 }

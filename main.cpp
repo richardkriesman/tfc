@@ -1,24 +1,38 @@
 #include <iostream>
+#include <vector>
+#include <sstream>
 #include "libtfc/TfcFile.h"
+#include "Colors.h"
 
-const std::string VERSION = "0.0.1";
+const std::string VERSION = "0.0.1"; // NOLINT
 
 void help();
 uint32_t stash(Tfc::TfcFile* file, const std::string &filename);
 void unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename);
+std::vector<std::string> parseInput(const std::string &input);
+std::string status(bool success = true);
 
 int main(int argc, char** argv) {
 
     // check for proper number of arguments
-    if(argc < 3) {
+    if(argc < 2) {
         help();
         return 1;
+    }
+    std::string filename = argv[1]; // filename, may also be --help or --version
+
+    // check for version or help flags
+    if(filename == "--help") { // help flag
+        help();
+        return 0;
+    } else if(filename == "--version") { // version flag
+        std::cout << "Tagged File Containers (TFC) v" << VERSION << "\n";
+        return 0;
     }
 
     // try to open a file
     Tfc::TfcFile* file = nullptr;
     try {
-        std::string filename(argv[1]);
         std::string extension(".tfc");
         file = new Tfc::TfcFile(filename + extension);
     } catch (Tfc::TfcFileException &ex) {
@@ -26,68 +40,94 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // print encryption warning if file is not encrypted
+    if(!file->isEncrypted() && file->doesExist()) {
+        std::cout << Colors::BOLD << Colors::YELLOW << "Warning: " << Colors::RESET;
+        std::cout << "This container is not encrypted. Files can be unstashed by anyone!\n";
+    }
+
     // handle commands
-    std::string command = std::string(argv[2]);
-    try {
+    std::string input;
+    while(input != "exit") {
 
-        // help command
-        if (command == "help") {
-            help();
+        // print prompt
+        if(file->isUnlocked() && file->doesExist())
+            std::cout << Colors::GREEN;
+        else
+            std::cout << Colors::GREY;
+        std::cout << "tfc> " << Colors::RESET;
 
-        // version command
-        } else if(command == "version") {
-            std::cout << "Tagged File Containers (TFC) v" << VERSION << "\n";
+        // get input
+        std::cin >> input;
+        std::vector<std::string> commands = parseInput(input);
 
-        // init command
-        } else if (command == "init" && argc >= 3) {
-            file->mode(Tfc::TfcFileMode::CREATE);
-            file->init();
-            file->mode(Tfc::TfcFileMode::CLOSED);
-            std::cout << "Created container file at " << argv[1] << "\n";
+        // process input
+        try {
 
-        // list command
-        } else if(command == "list") {
-            file->mode(Tfc::TfcFileMode::READ);
-            Tfc::JumpTableList* list = file->listBlobs();
-            for(uint32_t i = 0; i < list->count; i++) {
-                printf("%10d\t", list->rows[i]->nonce); // print nonce
-
-                // print hash
-                for (char j : list->rows[i]->hash) {
-                    unsigned char byte = 0x00;
-                    byte |= j;
-
-                    printf("%02X ", (unsigned int)(byte & 0xFF));
-                }
-
-                printf("\n");
+            // help command
+            if (commands[0] == "help") {
+                help();
+                continue;
             }
 
-        // stash command
-        } else if (command == "stash" && argc >= 4) {
-            uint32_t nonce = stash(file, argv[3]);
-            std::cout << "Stashed " << argv[3] << " with ID " << nonce << "\n";
+            // init command
+            if (commands[0] == "init") {
+                file->mode(Tfc::TfcFileMode::CREATE);
+                file->init();
+                file->mode(Tfc::TfcFileMode::CLOSED);
+                std::cout << status(true) << " Created container file at " << filename << "\n";
+                continue;
+            }
 
-        // unstash command
-        } else if (command== "unstash" && argc >= 5) {
-            int32_t nonce = std::stoi(argv[3]);
-            if(nonce < 0)
-                throw Tfc::TfcFileException("File IDs cannot be negative");
-            unstash(file, static_cast<uint32_t>(nonce), argv[4]);
-            std::cout << "Unstashed " << nonce << " into " << argv[4];
+            // list command
+            if(commands[0] == "list") {
+                file->mode(Tfc::TfcFileMode::READ);
+                Tfc::JumpTableList *list = file->listBlobs();
+                for (uint32_t i = 0; i < list->count; i++) {
+                    printf("%10d\t", list->rows[i]->nonce); // print nonce
 
-        // unknown command
-        } else {
-            help();
-            return 1;
+                    // print hash
+                    for (char j : list->rows[i]->hash) {
+                        unsigned char byte = 0x00;
+                        byte |= j;
+
+                        printf("%02X ", (unsigned int) (byte & 0xFF));
+                    }
+
+                    printf("\n");
+                }
+                continue;
+            }
+
+            // stash command
+            if (commands[0] == "stash" && commands.size() == 2) {
+                uint32_t nonce = stash(file, commands[1]);
+
+                std::cout << status(true) << " Stashed " << commands[1] << " with ID " << nonce << "\n";
+                continue;
+            }
+
+            // unstash command
+            if (commands[0] == "unstash" && commands.size() == 3) {
+                int32_t nonce = std::stoi(commands[1]);
+                if (nonce < 0)
+                    throw Tfc::TfcFileException("File IDs cannot be negative");
+                unstash(file, static_cast<uint32_t>(nonce), commands[2]);
+
+                std::cout << status(true) << " Unstashed " << nonce << " into " << commands[2];
+                continue;
+            }
+
+            // unknown command
+            if(commands[0] != "exit")
+                std::cerr << status(false) << " Invalid command. Type \"help\" for a list of commands.\n";
+
+        } catch (Tfc::TfcFileException &ex) {
+            std::cerr << status(false) << " " << ex.what() << "\n";
+        } catch (std::exception &ex) {
+            std::cerr << status(false) << " " << ex.what() << "\n";
         }
 
-    } catch (Tfc::TfcFileException &ex) {
-        std::cerr << "tfc: " << ex.what() << "\n";
-        return 1;
-    } catch (std::exception &ex) {
-        std::cerr << "tfc: " << ex.what() << "\n";
-        return 1;
     }
 
     // clean up
@@ -155,7 +195,7 @@ void unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename) {
  */
 void help() {
     printf("Tagged File Containers\n\n"
-                   "Usage: tfc <filename> <command>\n"
+                   "Usage: tfc <filename>\n"
                    "\t%-25s\tprints the version\n"
                    "\t%-25s\tprints this help page\n\n"
                    "Commands:\n"
@@ -167,6 +207,71 @@ void help() {
                    "\t%-25s\tremoves a tag from a file (TBI)\n"
                    "\t%-25s\tsearches for files matching all of the tags (TBI)\n"
                    "\t%-25s\tlists all files by their ID and hash\n",
-    "version", "help", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
+    "--version", "--help", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
            "tag <id> <tag>", "untag <id> <tag>", "search <tag> ...", "list");
+}
+
+/**
+ * Helper function. Splits a string by spaces unless escaped with \ or encapsulated with ".
+ *
+ * @param input The string to be split.
+ * @param delimiter The delimiter to split by.
+ * @return A vector of tokens split by the delimiter.
+ */
+std::vector<std::string> parseInput(const std::string &input) {
+    std::vector<std::string> tokens;    // the vector of tokens
+    std::istringstream stream(input);   // stream containing the string input
+    std::string token;                  // the current token
+    bool isEncapsulated = false;        // whether the token is encapsulated between quotation marks
+    bool isEscaped = false;             // whether the current character is escaped
+
+    while(true) {
+
+        // get char from stream
+        char c;
+        stream.get(c);
+        if(stream.eof()) // end of file, stop processing
+            break;
+
+        // set escaped status is backslash
+        if(c == '\\' && !isEscaped) {
+            isEscaped = true;
+            continue;
+        }
+
+        // set encapsulation status if quotation mark
+        if(c == '"' && !isEscaped) {
+            isEncapsulated = !isEncapsulated;
+            continue;
+        }
+
+        // end token if space (and not escaped or encapsulated)
+        if(c == ' ' && !isEscaped && !isEncapsulated) {
+            tokens.push_back(token);
+            token = "";
+        }
+
+        // add char to token
+        token += c;
+        isEscaped = false;
+
+    }
+
+    // add remaining token to vector
+    tokens.push_back(token);
+
+    return tokens;
+}
+
+/**
+ * Returns a string with a colored status indicator based on whether a command succeeded or failed.
+ */
+std::string status(bool success) {
+    std::string statusStr = "[" + Colors::BOLD;
+    if(success)
+        statusStr += Colors::GREEN + Colors::CHECKMARK;
+    else
+        statusStr += Colors::RED + Colors::CROSSMARK;
+    statusStr += Colors::RESET + "]";
+    return statusStr;
 }
