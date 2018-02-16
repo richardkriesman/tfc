@@ -19,18 +19,12 @@ uint32_t JumpTable::size() {
     return this->_size;
 }
 
-JumpTableList *JumpTable::list() {
-    auto* list = new JumpTableList();
-    list->count = this->size();
-    list->rows = new JumpTableRow*[list->count];
+std::map<uint32_t, JumpTableRow *>::iterator JumpTable::begin() {
+    return this->map.begin();
+}
 
-    uint32_t i = 0;
-    for(std::pair<uint32_t, JumpTableRow*> row : this->map) {
-        list->rows[i] = row.second;
-        i++;
-    }
-
-    return list;
+std::map<uint32_t, JumpTableRow *>::iterator JumpTable::end() {
+    return this->map.end();
 }
 
 JumpTableRow::JumpTableRow(uint32_t nonce, const char* hash, std::streampos start) {

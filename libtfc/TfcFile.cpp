@@ -163,15 +163,24 @@ void TfcFile::analyze() {
                 // read tag count
                 tagCount = this->readUInt32();
 
-                // skip over tags
+                // allocate new tag table (and dealloc any old one)
+                delete this->tagTable;
+                this->tagTable = new TagTable();
+
+                // build in-memory tag table
                 for(uint32_t i = 0; i < tagCount; i++) {
 
-                    // skip nonce
-                    this->next(NONCE_LEN);
+                    // read nonce
+                    uint32_t nonce = this->readUInt32();
 
-                    // read name length and skip over name
+                    // read name string
                     uint32_t nameLen = this->readUInt32();
-                    this->next(nameLen);
+                    char nameChars[nameLen];
+                    this->stream.read(nameChars, nameLen);
+                    std::string name(nameChars);
+
+                    // add tag to tag table
+                    this->tagTable->add(new TagTableRow(nonce, name));
 
                 }
 
@@ -365,50 +374,16 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
     /*
      * Rewrite tag table
      */
-    // TODO: Actual tag table rewriting will be needed, but tags haven't been implemented yet
-
-    // update tag table position
-    this->tagTablePos = this->stream.tellg();
-
-    // write next nonce
-    this->writeUInt32(this->tagTableNextNonce);
-
-    // write tag count
-    this->writeUInt32(0);
+    this->writeTagTable();
 
     /*
-     * Rewrite blob table with new entry
+     * Rewrite blob table
      */
+    this->writeBlobTable();
 
-    // update blob table position
-    this->blobTablePos = this->stream.tellg();
-
-    // update next nonce
-    this->writeUInt32(this->blobTableNextNonce + 1);
-
-    // rewrite blob table entries
-    JumpTableList* list = this->jumpTable->list();
-    for(uint32_t i = 0; i < list->count; i++) {
-
-        // write nonce
-        this->writeUInt32(list->rows[i]->nonce);
-
-        // write sha256 hash
-        this->stream.write(reinterpret_cast<char*>(list->rows[i]->hash), HASH_LEN);
-        if(this->stream.fail())
-            throw TfcFileException("Failed to rewrite hash for " + list->rows[i]->nonce);
-
-        // write start pos
-        this->writeUInt64(static_cast<uint64_t>(list->rows[i]->start));
-
-        // TODO: write tags - for now, the count is just 0
-        this->writeUInt32(0);
-
-    }
-    delete list;
 
     /*
-     * Write blob table entry
+     * Write new blob table entry
      */
 
     // write the nonce
@@ -471,13 +446,33 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
 /**
  * READ operation. Returns a list of blob table entries.
  *
- * @return A pointer to a JumpTableList containing the count and an array of pointers to the entries.
+ * @return A vector of pointers to the entries.
  */
-JumpTableList* TfcFile::listBlobs() {
+std::vector<JumpTableRow*> TfcFile::listBlobs() {
     if(this->op != TfcFileMode::READ)
         throw TfcFileException("File not in READ mode");
 
-    return this->jumpTable->list();
+    std::vector<JumpTableRow*> rows;
+    for (auto &iter : *this->jumpTable)
+        rows.push_back(iter.second);
+
+    return rows;
+}
+
+/**
+ * READ operation. Returns a list of tag table entries.
+ *
+ * @return A vector of pointers to the entries.
+ */
+std::vector<TagTableRow *> TfcFile::listTags() {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    std::vector<TagTableRow*> rows;
+    for (auto &iter : *this->tagTable)
+        rows.push_back(iter.second);
+
+    return rows;
 }
 
 /**
@@ -499,4 +494,72 @@ bool TfcFile::isUnlocked() {
  */
 bool TfcFile::doesExist() {
     return this->exists;
+}
+
+/**
+ * INTERNAL operation. Writes the current tag table from memory to the file at the *current position*. This will update
+ * the tag table's position variable.
+ */
+void TfcFile::writeTagTable() {
+
+    // update tag table position
+    this->tagTablePos = this->stream.tellg();
+
+    // write next nonce
+    this->writeUInt32(this->tagTableNextNonce);
+
+    // write tag count
+    this->writeUInt32(this->tagTable->size());
+
+    // rewrite tag table entries
+    for(auto &iter : *this->tagTable) {
+        TagTableRow* row = iter.second;
+
+        // write nonce
+        this->writeUInt32(row->nonce);
+
+        // write name length and name
+        this->writeUInt32(static_cast<const uint32_t &>(row->name.length()));
+        this->stream.write(row->name.c_str(), row->name.size());
+
+    }
+
+    // flush the stream
+    this->stream.flush();
+}
+
+/**
+ * INTERNAL operation. Writes the current blob table from memory to the file at the *current position*. This will update
+ * the blob table's position variable.
+ */
+void TfcFile::writeBlobTable() {
+
+    // update blob table position
+    this->blobTablePos = this->stream.tellg();
+
+    // update next nonce
+    this->writeUInt32(this->blobTableNextNonce + 1);
+
+    // rewrite blob table entries
+    for(auto &iter : *this->jumpTable) {
+        JumpTableRow* row = iter.second;
+
+        // write nonce
+        this->writeUInt32(row->nonce);
+
+        // write sha256 hash
+        this->stream.write(reinterpret_cast<char*>(row->hash), HASH_LEN);
+        if(this->stream.fail())
+            throw TfcFileException("Failed to rewrite hash for " + row->nonce);
+
+        // write start pos
+        this->writeUInt64(static_cast<uint64_t>(row->start));
+
+        // TODO: write tags - for now, the count is just 0
+        this->writeUInt32(0);
+
+    }
+
+    // flush the stream
+    this->stream.flush();
 }

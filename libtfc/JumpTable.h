@@ -18,23 +18,19 @@ namespace Tfc {
 
     };
 
-    struct JumpTableList {
-        uint32_t count;
-        JumpTableRow** rows;
-    };
-
     class JumpTable {
 
     public:
         void add(JumpTableRow* row);
         JumpTableRow* get(uint32_t nonce);
         uint32_t size();
-        JumpTableList* list();
+
+        std::map<uint32_t, JumpTableRow*>::iterator begin();
+        std::map<uint32_t, JumpTableRow*>::iterator end();
 
     private:
         uint32_t _size = 0;
         std::map<uint32_t, JumpTableRow*> map;
-
     };
 
 }

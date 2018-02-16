@@ -96,17 +96,18 @@ int main(int argc, char** argv) {
                 continue;
             }
 
-            // list command
-            if(commands[0] == "list") {
+            // list files command
+            if(commands[0] == "files") {
                 file->mode(Tfc::TfcFileMode::READ);
-                Tfc::JumpTableList *list = file->listBlobs();
+
                 printf("%-10s\t%-10s\n", "ID", "File Hash");
                 printf("%-10s\t%-10s\n", "----------", "----------");
-                for (uint32_t i = 0; i < list->count; i++) {
-                    printf("%-10d\t", list->rows[i]->nonce); // print nonce
+
+                for (Tfc::JumpTableRow* row : file->listBlobs()) {
+                    printf("%-10d\t", row->nonce); // print nonce
 
                     // print hash
-                    for (char j : list->rows[i]->hash) {
+                    for (char j : row->hash) {
                         unsigned char byte = 0x00;
                         byte |= j;
 
@@ -115,7 +116,22 @@ int main(int argc, char** argv) {
 
                     printf("\n");
                 }
-                delete list;
+
+                file->mode(Tfc::TfcFileMode::CLOSED);
+                continue;
+            }
+
+            // list tags command
+            if(commands[0] == "tags") {
+                file->mode(Tfc::TfcFileMode::READ);
+
+                printf("%-10s\t%-10s\n", "ID", "Name");
+                printf("%-10s\t%-10s\n", "----------", "----------");
+
+                for(Tfc::TagTableRow* row : file->listTags())
+                    printf("%10d\t%-10s\n", row->nonce, row->name);
+
+                file->mode(Tfc::TfcFileMode::CLOSED);
                 continue;
             }
 
@@ -233,9 +249,11 @@ void help() {
                    "\t%-25s\tadds a tag to a file\n"
                    "\t%-25s\tremoves a tag from a file\n"
                    "\t%-25s\tsearches for files matching the tags\n"
-                   "\t%-25s\tlists all files by their ID and hash\n",
+                   "\t%-25s\tlists all files with their ID and hash\n"
+                   "\t%-25s\tlists all tags with their ID and name\n",
     "--version", "--help", "help", "about", "clear", "init", "stash <filename>", "unstash <id> <filename>",
-           "(TBI) delete <id>", "(TBI) tag <id> <tag>", "(TBI) untag <id> <tag>", "(TBI) search <tag> ...", "list");
+           "(TBI) delete <id>", "(TBI) tag <id> <tag>", "(TBI) untag <id> <tag>", "(TBI) search <tag> ...", "files",
+           "tags");
 }
 
 /**

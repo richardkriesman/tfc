@@ -8,6 +8,7 @@
 
 #include "TfcFileException.h"
 #include "JumpTable.h"
+#include "TagTable.h"
 
 namespace Tfc {
 
@@ -34,7 +35,8 @@ namespace Tfc {
         void init();
         uint32_t addBlob(char* bytes, uint64_t size);
         TfcFileBlob* readBlob(uint32_t nonce);
-        JumpTableList* listBlobs();
+        std::vector<JumpTableRow*> listBlobs();
+        std::vector<TagTableRow*> listTags();
         bool isEncrypted();
         bool isUnlocked();
         bool doesExist();
@@ -70,7 +72,8 @@ namespace Tfc {
         uint32_t tagTableNextNonce;   // next nonce for a new tag
         uint32_t blobTableNextNonce;  // next nonce for a new blob
 
-        // in-memory jump table for blobs
+        // in-memory tables
+        TagTable* tagTable = nullptr;
         JumpTable* jumpTable = nullptr;
 
         void reset();
@@ -84,6 +87,10 @@ namespace Tfc {
         void writeUInt32(const uint32_t &value);
 
         void writeUInt64(const uint64_t &value);
+
+        void writeTagTable();
+
+        void writeBlobTable();
 
         void next(std::streampos length);
 
