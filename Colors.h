@@ -17,7 +17,6 @@ namespace Colors {
 
     const std::string CHECKMARK = "\u2713";
     const std::string CROSSMARK = "\u274C";
-
 }
 
 #endif //TFC_COLORS_H

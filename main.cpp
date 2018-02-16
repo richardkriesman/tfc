@@ -58,7 +58,7 @@ int main(int argc, char** argv) {
         std::cout << "tfc> " << Colors::RESET;
 
         // get input
-        std::cin >> input;
+        std::getline(std::cin, input);
         std::vector<std::string> commands = parseInput(input);
 
         // process input
@@ -67,6 +67,17 @@ int main(int argc, char** argv) {
             // help command
             if (commands[0] == "help") {
                 help();
+                continue;
+            }
+
+            // about command
+            if (commands[0] == "about") {
+                std::cout << Colors::BOLD << "Tagged File Containers (TFC)\n\n" << Colors::RESET <<
+                             "Copyright © Richard Kriesman 2018.\n"
+                             "https://richardkriesman.com\n\n"
+                             "The TFC client and libtfc library are released under the MIT License.\n"
+                             "You are free to share and modify this software.\n";
+
                 continue;
             }
 
@@ -83,8 +94,10 @@ int main(int argc, char** argv) {
             if(commands[0] == "list") {
                 file->mode(Tfc::TfcFileMode::READ);
                 Tfc::JumpTableList *list = file->listBlobs();
+                printf("%-10s\t%-10s\n", "ID", "File Hash");
+                printf("%-10s\t%-10s\n", "----------", "----------");
                 for (uint32_t i = 0; i < list->count; i++) {
-                    printf("%10d\t", list->rows[i]->nonce); // print nonce
+                    printf("%-10d\t", list->rows[i]->nonce); // print nonce
 
                     // print hash
                     for (char j : list->rows[i]->hash) {
@@ -114,7 +127,7 @@ int main(int argc, char** argv) {
                     throw Tfc::TfcFileException("File IDs cannot be negative");
                 unstash(file, static_cast<uint32_t>(nonce), commands[2]);
 
-                std::cout << status(true) << " Unstashed " << nonce << " into " << commands[2];
+                std::cout << status(true) << " Unstashed " << nonce << " into " << commands[2] << "\n";
                 continue;
             }
 
@@ -199,6 +212,8 @@ void help() {
                    "\t%-25s\tprints the version\n"
                    "\t%-25s\tprints this help page\n\n"
                    "Commands:\n"
+                   "\t%-25s\tprints this help page\n"
+                   "\t%-25s\tdisplays copyright information\n"
                    "\t%-25s\tcreates a new container file\n"
                    "\t%-25s\tcopies a file into the container\n"
                    "\t%-25s\tcopies a file out of the container\n"
@@ -207,7 +222,7 @@ void help() {
                    "\t%-25s\tremoves a tag from a file (TBI)\n"
                    "\t%-25s\tsearches for files matching all of the tags (TBI)\n"
                    "\t%-25s\tlists all files by their ID and hash\n",
-    "--version", "--help", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
+    "--version", "--help", "help", "about", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
            "tag <id> <tag>", "untag <id> <tag>", "search <tag> ...", "list");
 }
 
@@ -233,7 +248,7 @@ std::vector<std::string> parseInput(const std::string &input) {
         if(stream.eof()) // end of file, stop processing
             break;
 
-        // set escaped status is backslash
+        // set escaped status if backslash
         if(c == '\\' && !isEscaped) {
             isEscaped = true;
             continue;
@@ -249,6 +264,7 @@ std::vector<std::string> parseInput(const std::string &input) {
         if(c == ' ' && !isEscaped && !isEncapsulated) {
             tokens.push_back(token);
             token = "";
+            continue;
         }
 
         // add char to token

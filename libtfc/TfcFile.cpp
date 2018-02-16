@@ -342,7 +342,7 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
     this->jump(this->blobTablePos);
 
     // update next nonce
-    this->writeUInt32(this->blobTableNextNonce++);
+    this->writeUInt32(++this->blobTableNextNonce);
 
     // update blob count
     this->writeUInt32(this->jumpTable->size() + 1);

@@ -2,7 +2,7 @@
 #ifndef TFC_JUMPTABLE_H
 #define TFC_JUMPTABLE_H
 
-#include <unordered_map>
+#include <map>
 #include <cstring>
 
 namespace Tfc {
@@ -33,7 +33,7 @@ namespace Tfc {
 
     private:
         uint32_t _size = 0;
-        std::unordered_map<uint32_t, JumpTableRow*> map;
+        std::map<uint32_t, JumpTableRow*> map;
 
     };
 
