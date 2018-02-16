@@ -81,6 +81,12 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            // clear screen command
+            if (commands[0] == "clear") {
+                std::cout << Colors::CLEAR_SCREEN << status(true) << " Cleared screen\n";
+                continue;
+            }
+
             // init command
             if (commands[0] == "init") {
                 file->mode(Tfc::TfcFileMode::CREATE);
@@ -104,11 +110,12 @@ int main(int argc, char** argv) {
                         unsigned char byte = 0x00;
                         byte |= j;
 
-                        printf("%02X ", (unsigned int) (byte & 0xFF));
+                        printf("%02X", (unsigned int) (byte & 0xFF));
                     }
 
                     printf("\n");
                 }
+                delete list;
                 continue;
             }
 
@@ -180,6 +187,9 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename) {
     uint32_t nonce = file->addBlob(data, static_cast<uint64_t>(size));
     file->mode(Tfc::TfcFileMode::CLOSED);
 
+    // clean up
+    delete data;
+
     return nonce;
 }
 
@@ -199,6 +209,7 @@ void unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename) {
     stream.write(blob->data, blob->size);
     stream.close();
 
+    // clean up
     delete blob;
 
 }
@@ -214,16 +225,17 @@ void help() {
                    "Commands:\n"
                    "\t%-25s\tprints this help page\n"
                    "\t%-25s\tdisplays copyright information\n"
+                   "\t%-25s\tclears the screen\n"
                    "\t%-25s\tcreates a new container file\n"
                    "\t%-25s\tcopies a file into the container\n"
                    "\t%-25s\tcopies a file out of the container\n"
-                   "\t%-25s\tdeletes a file from the container (TBI)\n"
-                   "\t%-25s\tadds a tag to a file (TBI)\n"
-                   "\t%-25s\tremoves a tag from a file (TBI)\n"
-                   "\t%-25s\tsearches for files matching all of the tags (TBI)\n"
+                   "\t%-25s\tdeletes a file from the container\n"
+                   "\t%-25s\tadds a tag to a file\n"
+                   "\t%-25s\tremoves a tag from a file\n"
+                   "\t%-25s\tsearches for files matching the tags\n"
                    "\t%-25s\tlists all files by their ID and hash\n",
-    "--version", "--help", "help", "about", "init", "stash <filename>", "unstash <id> <filename>", "delete <id>",
-           "tag <id> <tag>", "untag <id> <tag>", "search <tag> ...", "list");
+    "--version", "--help", "help", "about", "clear", "init", "stash <filename>", "unstash <id> <filename>",
+           "(TBI) delete <id>", "(TBI) tag <id> <tag>", "(TBI) untag <id> <tag>", "(TBI) search <tag> ...", "list");
 }
 
 /**

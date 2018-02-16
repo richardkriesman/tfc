@@ -11,6 +11,16 @@ root {
         field    256   stream    encrypted_dek
     }
 
+    section blobs encrypted => header::encrypted_dek {
+        field    32     uint   blob_count
+
+        section file [] {
+            field    64             uint       data_length
+            field    data_length    stream     data
+        }
+
+    }
+
     section tag_table encrypted => header::encrypted_dek {
         field    32    uint      next_nonce
         field    32    uint      tag_count
@@ -25,7 +35,6 @@ root {
 
     section blob_table encrypted => header::encrypted_dek {
         field    32     uint   next_nonce
-        field    32     uint   blob_count
 
         section blob_header[] {
             field    32     uint       nonce
@@ -37,15 +46,6 @@ root {
                 field    32     uint    index => root::tags::tag::index
             }
         }
-    }
-
-    section blobs encrypted => header::encrypted_dek {
-
-        section file [] {
-            field    64             uint       data_length
-            field    data_length    stream     data
-        }
-
     }
 
 }

@@ -103,16 +103,16 @@ void TfcFile::analyze() {
     // current state of the analyzer
     enum AnalyzeState {
         HEADER,
+        BLOB_LIST,
         TAG_TABLE,
         BLOB_TABLE,
-        BLOB_LIST,
         END
     };
     int state = AnalyzeState::HEADER;
 
     // read based on state
     uint32_t tagCount;
-    uint32_t blobCount;
+    uint32_t blobCount = 0;
     uint32_t version;
     while(state != AnalyzeState::END) {
         switch (state) {
@@ -136,6 +136,20 @@ void TfcFile::analyze() {
                         this->unlocked = false;
                         break;
                     }
+                }
+
+                state++;
+                break;
+            case AnalyzeState::BLOB_LIST:
+                this->blobListPos = this->stream.tellg();
+
+                // read number of blobs
+                blobCount = this->readUInt32();
+
+                // skip over the blobs
+                for(uint32_t i = 0; i < blobCount; i++) {
+                    uint64_t size = this->readUInt64(); // size of the blob
+                    this->next(size); // skip over blob bytes
                 }
 
                 state++;
@@ -169,9 +183,6 @@ void TfcFile::analyze() {
                 // read next blob nonce
                 this->blobTableNextNonce = this->readUInt32();
 
-                // read number of blobs
-                blobCount = this->readUInt32();
-
                 // allocate new jump table (and dealloc any old one)
                 delete this->jumpTable;
                 this->jumpTable = new JumpTable();
@@ -196,11 +207,6 @@ void TfcFile::analyze() {
                     // add to blob to jump table
                     this->jumpTable->add(new JumpTableRow(nonce, hash, start));
                 }
-
-                state++;
-                break;
-            case AnalyzeState::BLOB_LIST:
-                this->blobListPos = this->stream.tellg();
 
                 state++;
                 break;
@@ -231,15 +237,17 @@ void TfcFile::init() {
         this->writeUInt32(0x0);
     }
 
+    // write blob list - just the count (which is 0) for now
+    this->writeUInt32(0);
+
     // write tag table - for an empty container, this is the next nonce (1) and the count
     this->writeUInt32(1);
     this->writeUInt32(0);
 
-    // write blob table - for an empty container, this is the next nonce (1) and the count
+    // write blob table - for an empty container, this is the next nonce (1)
     this->writeUInt32(1);
-    this->writeUInt32(0);
 
-    // nothing to write for the blob list, just flush the buffer
+    // flush the buffer
     this->stream.flush();
 
     // the file exists now, update state
@@ -335,54 +343,15 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
         throw TfcFileException("File not in EDIT mode");
 
     /*
-     * Move to end of blob table
-     */
-
-    // jump to blob table
-    this->jump(this->blobTablePos);
-
-    // update next nonce
-    this->writeUInt32(++this->blobTableNextNonce);
-
-    // update blob count
-    this->writeUInt32(this->jumpTable->size() + 1);
-
-    // iterate through blob table entries
-    for(uint32_t i = 0; i < this->jumpTable->size(); i++) {
-
-        // skip over nonce, hash, and start pos
-        this->next(sizeof(uint32_t) + sizeof(uint64_t) + HASH_LEN);
-
-        // skip over tags
-        uint32_t tagCount = this->readUInt32();
-        this->next(sizeof(uint32_t) * tagCount);
-    }
-
-    /*
-     * Write blob table entry
-     */
-
-    // write and increment the nonce
-    this->writeUInt32(this->blobTableNextNonce - 1);
-
-    // calculate and write sha256 hash
-    std::vector<unsigned char> hash(32);
-    picosha2::hash256(bytes, bytes + size, hash.begin(), hash.end());
-    this->stream.write(reinterpret_cast<char*>(hash.data()), 32);
-    if(this->stream.fail())
-        throw TfcFileException("Failed to write blob hash");
-
-    // write start pos and tag count
-    std::streampos startPosPos = this->stream.tellg();
-    this->writeUInt64(0); // write start pos (0 for right now, we'll change this after we add the blob)
-    this->writeUInt32(0); // write tag count (0 for new files)
-
-    /*
      * Write blob bytes
      */
 
-    // jump to end of file
-    this->jumpBack(0);
+    // update blob count at beginning of blob list
+    this->jump(this->blobListPos);
+    this->writeUInt32(this->jumpTable->size() + 1);
+
+    // jump to beginning of tag table (where the new blob will be written)
+    this->jump(this->tagTablePos);
     auto blobStartPos = static_cast<uint64_t>(this->stream.tellg());
 
     // write blob size
@@ -394,19 +363,71 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
         throw TfcFileException("Failed to write blob data");
 
     /*
-     * Update blob start pos
+     * Rewrite tag table
+     */
+    // TODO: Actual tag table rewriting will be needed, but tags haven't been implemented yet
+
+    // update tag table position
+    this->tagTablePos = this->stream.tellg();
+
+    // write next nonce
+    this->writeUInt32(this->tagTableNextNonce);
+
+    // write tag count
+    this->writeUInt32(0);
+
+    /*
+     * Rewrite blob table with new entry
      */
 
-    // jump back to start pos field
-    this->stream.seekg(startPosPos);
+    // update blob table position
+    this->blobTablePos = this->stream.tellg();
 
-    // write blob start pos
-    this->writeUInt64(blobStartPos);
+    // update next nonce
+    this->writeUInt32(this->blobTableNextNonce + 1);
+
+    // rewrite blob table entries
+    JumpTableList* list = this->jumpTable->list();
+    for(uint32_t i = 0; i < list->count; i++) {
+
+        // write nonce
+        this->writeUInt32(list->rows[i]->nonce);
+
+        // write sha256 hash
+        this->stream.write(reinterpret_cast<char*>(list->rows[i]->hash), HASH_LEN);
+        if(this->stream.fail())
+            throw TfcFileException("Failed to rewrite hash for " + list->rows[i]->nonce);
+
+        // write start pos
+        this->writeUInt64(static_cast<uint64_t>(list->rows[i]->start));
+
+        // TODO: write tags - for now, the count is just 0
+        this->writeUInt32(0);
+
+    }
+    delete list;
+
+    /*
+     * Write blob table entry
+     */
+
+    // write the nonce
+    this->writeUInt32(this->blobTableNextNonce);
+
+    // calculate and write sha256 hash
+    std::vector<unsigned char> hash(32);
+    picosha2::hash256(bytes, bytes + size, hash.begin(), hash.end());
+    this->stream.write(reinterpret_cast<char*>(hash.data()), 32);
+    if(this->stream.fail())
+        throw TfcFileException("Failed to write blob hash");
+
+    // write start pos and tag count
+    this->writeUInt64(blobStartPos); // write start pos
+    this->writeUInt32(0); // write tag count (0 for new files)
 
     // flush buffer to disk
     this->stream.flush();
-
-    return this->blobTableNextNonce - 1;
+    return this->blobTableNextNonce++;
 }
 
 /**
@@ -432,6 +453,7 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
         throw TfcFileException("ID not not found");
     auto startPos = static_cast<uint64_t>(row->start);
     this->jump(startPos);
+    delete row;
 
     // read blob length
     blob->size = this->readUInt64();

@@ -6,7 +6,8 @@
 
 namespace Colors {
 
-    const std::string RESET  = "\u001b[0m";
+    const std::string RESET        = "\u001b[0m";
+    const std::string CLEAR_SCREEN = "\033[2J\033[1;1H";
 
     const std::string BOLD   = "\u001b[1m";
 
