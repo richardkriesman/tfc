@@ -93,7 +93,7 @@ void TfcFile::reset() {
 
 /**
  * READ mode operation. Analyzes the structure of the file. Finds the starting position of file sections and builds a
- * jump table for blobs.
+ * blob table for blobs.
  */
 void TfcFile::analyze() {
     if(this->op != TfcFileMode::READ)
@@ -174,13 +174,10 @@ void TfcFile::analyze() {
                     uint32_t nonce = this->readUInt32();
 
                     // read name string
-                    uint32_t nameLen = this->readUInt32();
-                    char nameChars[nameLen];
-                    this->stream.read(nameChars, nameLen);
-                    std::string name(nameChars);
+                    std::string name = this->readString();
 
                     // add tag to tag table
-                    this->tagTable->add(new TagTableRow(nonce, name));
+                    this->tagTable->add(new TagRecord(nonce, name));
 
                 }
 
@@ -192,9 +189,9 @@ void TfcFile::analyze() {
                 // read next blob nonce
                 this->blobTableNextNonce = this->readUInt32();
 
-                // allocate new jump table (and dealloc any old one)
-                delete this->jumpTable;
-                this->jumpTable = new JumpTable();
+                // allocate new blob table (and dealloc any old one)
+                delete this->blobTable;
+                this->blobTable = new BlobTable();
 
                 // read blob table entries
                 for(uint32_t i = 0; i < blobCount; i++) {
@@ -209,12 +206,31 @@ void TfcFile::analyze() {
                     // get start position
                     uint64_t start = this->readUInt64();
 
-                    // skip over tags, we don't care about them at the moment
-                    uint32_t blobTagCount = this->readUInt32();
-                    this->next(sizeof(uint32_t) * blobTagCount);
+                    // build blob record
+                    BlobRecord* blobRecord = new BlobRecord(nonce, hash, start);
 
-                    // add to blob to jump table
-                    this->jumpTable->add(new JumpTableRow(nonce, hash, start));
+                    // read tag count
+                    uint32_t blobTagCount = this->readUInt32();
+
+                    // read in tags
+                    for(uint32_t j = 0; j < blobTagCount; j++) {
+
+                        // read tag nonce
+                        uint32_t tagNonce = this->readUInt32();
+
+                        // get tag from the tag table
+                        TagRecord* tagRecord = this->tagTable->get(tagNonce);
+                        if(tagRecord == nullptr) // if tag doesn't exist, just ignore it
+                            continue;
+
+                        // link tag and blob together
+                        blobRecord->addTag(tagRecord);
+                        tagRecord->addBlob(blobRecord);
+
+                    }
+
+                    // add to blob to blob table
+                    this->blobTable->add(blobRecord);
                 }
 
                 state++;
@@ -242,9 +258,8 @@ void TfcFile::init() {
     this->writeUInt32(FILE_VERSION); // write file version
 
     // write DEK as all 0s (since there's no encryption yet)
-    for(int i = 0; i < 8; i++) { // 32 * 8 is 256, the size of the DEK
+    for(int i = 0; i < 8; i++) // 32 * 8 is 256, the size of the DEK
         this->writeUInt32(0x0);
-    }
 
     // write blob list - just the count (which is 0) for now
     this->writeUInt32(0);
@@ -290,6 +305,28 @@ uint64_t TfcFile::readUInt64() {
 }
 
 /**
+ * Reads a string at the specified position. This function will first read a uint32_t to obtain the length of the
+ * string.
+ *
+ * @return A string at the cursor's current position.
+ */
+std::string TfcFile::readString() {
+    uint32_t length = this->readUInt32(); // length of the string
+
+    // read into buffer
+    char buf[length + 1]; // buffer for storing the string + null terminator
+    this->stream.read(buf, length);
+    if(this->stream.fail())
+        throw TfcFileException("Failed to read string");
+
+    // add null terminator at end of buffer
+    buf[length] = '\0';
+
+    // convert to string
+    return std::string(buf);
+}
+
+/**
  * Writes a uint32_t to the file at the current position and moves the cursor forward by 4 bytes.
  *
  * @param value The uint32_t value to write.
@@ -311,6 +348,23 @@ void TfcFile::writeUInt64(const uint64_t &value) {
     this->stream.write((char*) &networkByteValue, sizeof(uint64_t));
     if(this->stream.fail())
         throw TfcFileException("Failed to write uint64");
+}
+
+/**
+ * Writes a string to the file at the current position and moves the cursor forward by a number of bytes equal to the
+ * length of the string.
+ *
+ * @param value The string to write.
+ */
+void TfcFile::writeString(const std::string &value) {
+
+    // write string length
+    this->writeUInt32(static_cast<uint32_t>(value.size()));
+
+    // write string bytes
+    this->stream.write(value.c_str(), value.size());
+    if(this->stream.fail())
+        throw TfcFileException("Failed to write string");
 }
 
 /**
@@ -357,7 +411,7 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
 
     // update blob count at beginning of blob list
     this->jump(this->blobListPos);
-    this->writeUInt32(this->jumpTable->size() + 1);
+    this->writeUInt32(this->blobTable->size() + 1);
 
     // jump to beginning of tag table (where the new blob will be written)
     this->jump(this->tagTablePos);
@@ -377,32 +431,73 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
     this->writeTagTable();
 
     /*
-     * Rewrite blob table
-     */
-    this->writeBlobTable();
-
-
-    /*
-     * Write new blob table entry
+     * Rewrite blob table with new entry
      */
 
-    // write the nonce
-    this->writeUInt32(this->blobTableNextNonce);
-
-    // calculate and write sha256 hash
+    // calculate sha256 hash
     std::vector<unsigned char> hash(32);
     picosha2::hash256(bytes, bytes + size, hash.begin(), hash.end());
-    this->stream.write(reinterpret_cast<char*>(hash.data()), 32);
-    if(this->stream.fail())
-        throw TfcFileException("Failed to write blob hash");
 
-    // write start pos and tag count
-    this->writeUInt64(blobStartPos); // write start pos
-    this->writeUInt32(0); // write tag count (0 for new files)
+    // create new record in blob table
+    BlobRecord* record = new BlobRecord(this->blobTableNextNonce++, reinterpret_cast<char*>(hash.data()), blobStartPos);
+    this->blobTable->add(record);
 
-    // flush buffer to disk
-    this->stream.flush();
-    return this->blobTableNextNonce++;
+    // rewrite the blob table
+    this->writeBlobTable();
+
+    return record->getNonce();
+}
+
+/**
+ * EDIT operation. Attaches a tag to a blob. If the tag does not exist, it will be created.
+ *
+ * @param nonce The nonce of the blob to whom the tag will be attached.
+ * @param tag The string tag to be attached. Tags are case insensitive.
+ */
+void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
+    if(this->op != TfcFileMode::EDIT)
+        throw TfcFileException("File not in EDIT mode");
+
+    // convert tag to lower case
+    std::string tagLower = tag;
+    std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+
+    // get the blob from the blob table
+    BlobRecord* blobRow = this->blobTable->get(nonce);
+    if(blobRow == nullptr)
+        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+
+    // get the tag from the tag table, or make a new one if it doesn't exist
+    TagRecord* tagRow = this->tagTable->get(tagLower);
+    if(tagRow == nullptr) { // tag doesn't exist in table, add it
+
+        // add a new tag to the tag table
+        tagRow = new TagRecord(this->tagTableNextNonce++, tagLower);
+        this->tagTable->add(tagRow);
+
+        // write the tag table to disk
+        this->jump(this->tagTablePos);
+        this->writeTagTable();
+
+    } else { // tag already exists in tag table
+
+        // check if tag is already attached
+        for(auto _tag : blobRow->getTags()) {
+            if(_tag == tagRow) // tag is already attached
+                throw TfcFileException("Tag is already attached to this blob");
+        }
+
+        // jump to blob table
+        this->jump(this->blobTablePos);
+
+    }
+
+    // link the blob and tag together
+    blobRow->addTag(tagRow);
+    tagRow->addBlob(blobRow);
+
+    // write the blob table to disk
+    this->writeBlobTable();
 }
 
 /**
@@ -415,18 +510,14 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
     if(this->op != TfcFileMode::READ)
         throw TfcFileException("File not in READ mode");
 
-    // try to get the blob table entry
-    if(nonce > this->jumpTable->size())
-        return nullptr;
-
     // create a new blob struct
     auto* blob = new TfcFileBlob();
 
     // jump to blob file
-    JumpTableRow* row = this->jumpTable->get(nonce);
+    BlobRecord* row = this->blobTable->get(nonce);
     if(row == nullptr)
-        throw TfcFileException("ID not not found");
-    auto startPos = static_cast<uint64_t>(row->start);
+        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+    auto startPos = static_cast<uint64_t>(row->getStart());
     this->jump(startPos);
     delete row;
 
@@ -448,12 +539,12 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
  *
  * @return A vector of pointers to the entries.
  */
-std::vector<JumpTableRow*> TfcFile::listBlobs() {
+std::vector<BlobRecord*> TfcFile::listBlobs() {
     if(this->op != TfcFileMode::READ)
         throw TfcFileException("File not in READ mode");
 
-    std::vector<JumpTableRow*> rows;
-    for (auto &iter : *this->jumpTable)
+    std::vector<BlobRecord*> rows;
+    for (auto &iter : *this->blobTable)
         rows.push_back(iter.second);
 
     return rows;
@@ -464,11 +555,11 @@ std::vector<JumpTableRow*> TfcFile::listBlobs() {
  *
  * @return A vector of pointers to the entries.
  */
-std::vector<TagTableRow *> TfcFile::listTags() {
+std::vector<TagRecord*> TfcFile::listTags() {
     if(this->op != TfcFileMode::READ)
         throw TfcFileException("File not in READ mode");
 
-    std::vector<TagTableRow*> rows;
+    std::vector<TagRecord*> rows;
     for (auto &iter : *this->tagTable)
         rows.push_back(iter.second);
 
@@ -498,7 +589,7 @@ bool TfcFile::doesExist() {
 
 /**
  * INTERNAL operation. Writes the current tag table from memory to the file at the *current position*. This will update
- * the tag table's position variable.
+ * the tag table's position variable. This may overwrite parts of the blob table.
  */
 void TfcFile::writeTagTable() {
 
@@ -513,14 +604,13 @@ void TfcFile::writeTagTable() {
 
     // rewrite tag table entries
     for(auto &iter : *this->tagTable) {
-        TagTableRow* row = iter.second;
+        TagRecord* row = iter.second;
 
         // write nonce
-        this->writeUInt32(row->nonce);
+        this->writeUInt32(row->getNonce());
 
         // write name length and name
-        this->writeUInt32(static_cast<const uint32_t &>(row->name.length()));
-        this->stream.write(row->name.c_str(), row->name.size());
+        this->writeString(row->getName());
 
     }
 
@@ -538,26 +628,29 @@ void TfcFile::writeBlobTable() {
     this->blobTablePos = this->stream.tellg();
 
     // update next nonce
-    this->writeUInt32(this->blobTableNextNonce + 1);
+    this->writeUInt32(this->blobTableNextNonce);
 
     // rewrite blob table entries
-    for(auto &iter : *this->jumpTable) {
-        JumpTableRow* row = iter.second;
+    for(auto &iter : *this->blobTable) {
+        BlobRecord* row = iter.second;
 
         // write nonce
-        this->writeUInt32(row->nonce);
+        this->writeUInt32(row->getNonce());
 
         // write sha256 hash
-        this->stream.write(reinterpret_cast<char*>(row->hash), HASH_LEN);
+        this->stream.write(row->getHash(), HASH_LEN);
         if(this->stream.fail())
-            throw TfcFileException("Failed to rewrite hash for " + row->nonce);
+            throw TfcFileException("Failed to rewrite hash for " + row->getNonce());
 
         // write start pos
-        this->writeUInt64(static_cast<uint64_t>(row->start));
+        this->writeUInt64(static_cast<uint64_t>(row->getStart()));
 
-        // TODO: write tags - for now, the count is just 0
-        this->writeUInt32(0);
+        // write tag count
+        this->writeUInt32(static_cast<uint32_t >(row->getTags().size()));
 
+        // write each tag's nonce
+        for(auto tag : row->getTags())
+            this->writeUInt32(tag->getNonce());
     }
 
     // flush the stream

@@ -7,7 +7,7 @@
 #include <arpa/inet.h>
 
 #include "TfcFileException.h"
-#include "JumpTable.h"
+#include "BlobTable.h"
 #include "TagTable.h"
 
 namespace Tfc {
@@ -34,9 +34,10 @@ namespace Tfc {
         TfcFileMode getMode();
         void init();
         uint32_t addBlob(char* bytes, uint64_t size);
+        void attachTag(uint32_t nonce, const std::string &tag);
         TfcFileBlob* readBlob(uint32_t nonce);
-        std::vector<JumpTableRow*> listBlobs();
-        std::vector<TagTableRow*> listTags();
+        std::vector<BlobRecord*> listBlobs();
+        std::vector<TagRecord*> listTags();
         bool isEncrypted();
         bool isUnlocked();
         bool doesExist();
@@ -74,28 +75,20 @@ namespace Tfc {
 
         // in-memory tables
         TagTable* tagTable = nullptr;
-        JumpTable* jumpTable = nullptr;
+        BlobTable* blobTable = nullptr;
 
         void reset();
-
         void analyze();
-
         uint32_t readUInt32();
-
         uint64_t readUInt64();
-
+        std::string readString();
         void writeUInt32(const uint32_t &value);
-
         void writeUInt64(const uint64_t &value);
-
+        void writeString(const std::string &value);
         void writeTagTable();
-
         void writeBlobTable();
-
         void next(std::streampos length);
-
         void jump(std::streampos length);
-
         void jumpBack(std::streampos length);
 
     };

@@ -8,7 +8,7 @@ using namespace Tfc;
  *
  * @param row A pointer to the row to add.
  */
-void TagTable::add(TagTableRow *row) {
+void TagTable::add(TagRecord* row) {
     this->nonceMap.insert({ row->nonce, row });
     this->nameMap.insert({ row->name, row });
     this->_size++;
@@ -20,7 +20,7 @@ void TagTable::add(TagTableRow *row) {
  * @param nonce A unique ID for the tag
  * @return The tag's row if it exists, otherwise nullptr.
  */
-TagTableRow* TagTable::get(uint32_t nonce) {
+TagRecord* TagTable::get(uint32_t nonce) {
     auto row = this->nonceMap.find(nonce);
     if(row == this->nonceMap.end())
         return nullptr;
@@ -33,7 +33,7 @@ TagTableRow* TagTable::get(uint32_t nonce) {
  * @param nonce A unique name for the tag.
  * @return The tag's row if it exists, otherwise nullptr.
  */
-TagTableRow* TagTable::get(std::string name) {
+TagRecord* TagTable::get(std::string name) {
     auto row = this->nameMap.find(name);
     if(row == this->nameMap.end())
         return nullptr;
@@ -47,16 +47,11 @@ uint32_t TagTable::size() {
     return this->_size;
 }
 
-std::map<uint32_t, TagTableRow*>::iterator TagTable::begin() {
+std::map<uint32_t, TagRecord*>::iterator TagTable::begin() {
     return this->nonceMap.begin();
 }
 
-std::map<uint32_t, TagTableRow*>::iterator TagTable::end() {
+std::map<uint32_t, TagRecord*>::iterator TagTable::end() {
     return this->nonceMap.end();
 };
 
-
-TagTableRow::TagTableRow(uint32_t nonce, const std::string &name) {
-    this->nonce = nonce;
-    this->name = name;
-}

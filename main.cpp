@@ -100,19 +100,25 @@ int main(int argc, char** argv) {
             if(commands[0] == "files") {
                 file->mode(Tfc::TfcFileMode::READ);
 
-                printf("%-10s\t%-10s\n", "ID", "File Hash");
+                printf("%-10s\t%-10s\n", "ID", "Tags");
                 printf("%-10s\t%-10s\n", "----------", "----------");
 
-                for (Tfc::JumpTableRow* row : file->listBlobs()) {
-                    printf("%-10d\t", row->nonce); // print nonce
+                for (Tfc::BlobRecord* row : file->listBlobs()) {
+                    printf("%-10d\t", row->getNonce()); // print nonce
+
+                    // print tags
+                    for(auto tag : row->getTags())
+                        printf("%s ", tag->getName().c_str());
 
                     // print hash
-                    for (char j : row->hash) {
+                    /*for (int j = 0; j < 256; j++) {
+                        char current = row->getHash()[0];
+
                         unsigned char byte = 0x00;
-                        byte |= j;
+                        byte |= current;
 
                         printf("%02X", (unsigned int) (byte & 0xFF));
-                    }
+                    }*/
 
                     printf("\n");
                 }
@@ -128,8 +134,8 @@ int main(int argc, char** argv) {
                 printf("%-10s\t%-10s\n", "ID", "Name");
                 printf("%-10s\t%-10s\n", "----------", "----------");
 
-                for(Tfc::TagTableRow* row : file->listTags())
-                    printf("%10d\t%-10s\n", row->nonce, row->name);
+                for(Tfc::TagRecord* row : file->listTags())
+                    printf("%-10d\t%-10s\n", row->getNonce(), row->getName().c_str());
 
                 file->mode(Tfc::TfcFileMode::CLOSED);
                 continue;
@@ -154,6 +160,22 @@ int main(int argc, char** argv) {
                 continue;
             }
 
+            // tag command
+            if (commands[0] == "tag" && commands.size() == 3) {
+                int32_t nonce = std::stoi(commands[1]);
+                if (nonce < 0)
+                    throw Tfc::TfcFileException("File IDs cannot be negative");
+
+                // attach the tag
+                file->mode(Tfc::TfcFileMode::READ);
+                file->mode(Tfc::TfcFileMode::EDIT);
+                file->attachTag(static_cast<uint32_t>(nonce), commands[2]);
+                file->mode(Tfc::TfcFileMode::CLOSED);
+
+                std::cout << status(true) << " Tagged " << nonce << " as " << commands[2] << "\n";
+                continue;
+            }
+
             // unknown command
             if(commands[0] != "exit")
                 std::cerr << status(false) << " Invalid command. Type \"help\" for a list of commands.\n";
@@ -174,7 +196,7 @@ int main(int argc, char** argv) {
 }
 
 /**
- * Reads a file from the filesystem
+ * Reads a file from the filesystem and writes it to the container.
  *
  * @param file The TFC file object
  * @param filename The path of the file to stash
@@ -209,6 +231,13 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename) {
     return nonce;
 }
 
+/**
+ * Reads a file from the container and writes it to the filesystem.
+ *
+ * @param file The TFC file object
+ * @param id The ID of the file to unstash
+ * @param filename The name the file should be given when it is written to the filesystem.
+ */
 void unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename) {
 
     // read the blob from the container
@@ -252,7 +281,7 @@ void help() {
                    "\t%-25s\tlists all files with their ID and hash\n"
                    "\t%-25s\tlists all tags with their ID and name\n",
     "--version", "--help", "help", "about", "clear", "init", "stash <filename>", "unstash <id> <filename>",
-           "(TBI) delete <id>", "(TBI) tag <id> <tag>", "(TBI) untag <id> <tag>", "(TBI) search <tag> ...", "files",
+           "(TBI) delete <id>", "tag <id> <tag>", "(TBI) untag <id> <tag>", "(TBI) search <tag> ...", "files",
            "tags");
 }
 
