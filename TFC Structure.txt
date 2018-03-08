@@ -37,10 +37,12 @@ root {
         field    32     uint   next_nonce
 
         section blob_header[] {
-            field    32     uint       nonce
-            field    256    stream     sha256_hash
-            field    64     uint       start_pos
-            field    32     uint       tag_count
+            field    32             uint       nonce
+            field    32             uint       name_length
+            field    name_length    string     name
+            field    256            stream     sha256_hash
+            field    64             uint       start_pos
+            field    32             uint       tag_count
 
             section tag_reference [] {
                 field    32     uint    index => root::tags::tag::index

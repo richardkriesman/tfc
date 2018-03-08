@@ -199,6 +199,9 @@ void TfcFile::analyze() {
                     // get nonce
                     uint32_t nonce = this->readUInt32();
 
+                    // read the name
+                    std::string name = this->readString();
+
                     // read the hash
                     char hash[HASH_LEN];
                     this->stream.read(hash, sizeof(hash));
@@ -207,7 +210,7 @@ void TfcFile::analyze() {
                     uint64_t start = this->readUInt64();
 
                     // build blob record
-                    BlobRecord* blobRecord = new BlobRecord(nonce, hash, start);
+                    BlobRecord* blobRecord = new BlobRecord(nonce, name, hash, start);
 
                     // read tag count
                     uint32_t blobTagCount = this->readUInt32();
@@ -439,7 +442,7 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
     picosha2::hash256(bytes, bytes + size, hash.begin(), hash.end());
 
     // create new record in blob table
-    BlobRecord* record = new BlobRecord(this->blobTableNextNonce++, reinterpret_cast<char*>(hash.data()), blobStartPos);
+    BlobRecord* record = new BlobRecord(this->blobTableNextNonce++, "name goes here", reinterpret_cast<char*>(hash.data()), blobStartPos);
     this->blobTable->add(record);
 
     // rewrite the blob table
@@ -483,7 +486,7 @@ void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
 
         // check if tag is already attached
         for(auto _tag : blobRow->getTags()) {
-            if(_tag == tagRow) // tag is already attached
+            if(_tag == tagRow) // tag is already attache5d
                 throw TfcFileException("Tag is already attached to this blob");
         }
 
@@ -567,6 +570,85 @@ std::vector<TagRecord*> TfcFile::listTags() {
 }
 
 /**
+ * READ operation. Given a vector of tag strings, a vector of BlobRecords are returned whose tags match all of the
+ * tag strings.
+ *
+ * @param tags A vector of tags
+ * @return A vector of BlobRecords whose tags contain all of the tags in the tags parameter.
+ */
+std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &tags) {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    std::vector<BlobRecord*> result; // set of intersecting BlobRecords
+
+    // build a search set of TagRecords
+    std::vector<TagRecord*> searchSet;
+    for(const auto &tag : tags) {
+
+        // convert tag to lower case
+        std::string tagLower = tag;
+        std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+
+        // get tag record
+        TagRecord* record = this->tagTable->get(tagLower);
+        if(record == nullptr)
+            throw TfcFileException(tagLower + " is not a tag");
+        searchSet.push_back(record);
+
+    }
+
+    // sort the search set
+    std::sort(searchSet.begin(), searchSet.end());
+
+    // build a union set of blob records (a set of blobs that have at least one of the tags)
+    auto* unionSet = new std::vector<BlobRecord*>();
+    for(const auto &tagRecord : searchSet) { // for each tag in search set
+        std::vector<BlobRecord*> blobs = tagRecord->getBlobs(); // vector of blobs with this tag
+        std::sort(blobs.begin(), blobs.end());
+
+        // union blob with union set
+        auto* newUnionSet = new std::vector<BlobRecord*>(unionSet->size() + blobs.size()); // pointer to the new union set
+        std::vector<BlobRecord*>::iterator end;
+        end = std::set_union(unionSet->begin(), unionSet->end(), blobs.begin(), blobs.end(), newUnionSet->begin());
+
+        // resize new union set
+        newUnionSet->resize(static_cast<unsigned long>(end - newUnionSet->begin()));
+
+        // swap in new union set
+        auto* oldUnionSet = unionSet;
+        unionSet = newUnionSet;
+        delete oldUnionSet;
+    }
+
+    // intersect each blob in the union set with the search set
+    for(const auto &blobRecord : *unionSet) {
+
+        // sort the blob record's tags
+        std::vector<TagRecord*> blobTags = blobRecord->getTags();
+        std::sort(blobTags.begin(), blobTags.end());
+
+        // check if the search set's tags are in the blob record's tags
+        std::vector<TagRecord*> intersection(searchSet.size());
+        std::vector<TagRecord*>::iterator end;
+        end = std::set_intersection(searchSet.begin(), searchSet.end(), blobTags.begin(), blobTags.end(), intersection.begin());
+
+        // resize the intersection set
+        intersection.resize(static_cast<unsigned long>(end - intersection.begin()));
+
+        // if tags match, add this record to the resultant set
+        if(intersection.size() == searchSet.size())
+            result.push_back(blobRecord);
+
+    }
+
+    delete unionSet;
+
+    return result;
+
+}
+
+/**
  * Whether the file is encrypted.
  */
 bool TfcFile::isEncrypted() {
@@ -636,6 +718,9 @@ void TfcFile::writeBlobTable() {
 
         // write nonce
         this->writeUInt32(row->getNonce());
+
+        // write name
+        this->writeString(row->getName());
 
         // write sha256 hash
         this->stream.write(row->getHash(), HASH_LEN);

@@ -16,8 +16,8 @@ namespace Tfc {
         TagRecord* get(uint32_t nonce);
         TagRecord* get(std::string name);
 
-        std::map<uint32_t, TagRecord*>::iterator begin();
-        std::map<uint32_t, TagRecord*>::iterator end();
+        std::map<std::string, TagRecord*>::iterator begin();
+        std::map<std::string, TagRecord*>::iterator end();
 
     private:
         uint32_t _size = 0;

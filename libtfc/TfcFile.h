@@ -38,6 +38,7 @@ namespace Tfc {
         TfcFileBlob* readBlob(uint32_t nonce);
         std::vector<BlobRecord*> listBlobs();
         std::vector<TagRecord*> listTags();
+        std::vector<BlobRecord*> intersection(const std::vector<std::string> &tags);
         bool isEncrypted();
         bool isUnlocked();
         bool doesExist();

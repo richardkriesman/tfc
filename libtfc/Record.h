@@ -13,18 +13,22 @@ namespace Tfc {
     class BlobRecord {
 
     public:
-        BlobRecord(uint32_t nonce, const char *hash, std::streampos start);
+        BlobRecord(uint32_t nonce, std::string name, const char *hash, std::streampos start);
+
+        bool operator<(BlobRecord* other);
 
         uint32_t getNonce() { return this->nonce; }
+        std::string getName() { return this->name; }
         char *getHash() { return this->hash; }
         std::streampos getStart() { return this->start; }
         std::vector<Tfc::TagRecord*> getTags() { return this->tags; }
         void addTag(Tfc::TagRecord* tag);
 
     private:
-        uint32_t nonce;              // unique identifier for this blob
-        char hash[32];               // SHA256 hash
-        std::streampos start;        // starting byte position of the blob
+        uint32_t nonce;                     // unique identifier for this blob
+        std::string name;                   // original file name
+        char hash[32];                      // SHA256 hash
+        std::streampos start;               // starting byte position of the blob
         std::vector<Tfc::TagRecord* > tags; // vector of tag pointers
 
         friend class BlobTable;
@@ -35,6 +39,8 @@ namespace Tfc {
 
     public:
         TagRecord(uint32_t nonce, const std::string &name);
+
+        bool operator<(TagRecord* other);
 
         const uint32_t getNonce() { return this->nonce; }
         const std::string getName() { return this->name; }

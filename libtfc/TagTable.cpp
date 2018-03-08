@@ -47,11 +47,11 @@ uint32_t TagTable::size() {
     return this->_size;
 }
 
-std::map<uint32_t, TagRecord*>::iterator TagTable::begin() {
-    return this->nonceMap.begin();
+std::map<std::string, TagRecord*>::iterator TagTable::begin() {
+    return this->nameMap.begin();
 }
 
-std::map<uint32_t, TagRecord*>::iterator TagTable::end() {
-    return this->nonceMap.end();
+std::map<std::string, TagRecord*>::iterator TagTable::end() {
+    return this->nameMap.end();
 };
 

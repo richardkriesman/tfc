@@ -100,25 +100,18 @@ int main(int argc, char** argv) {
             if(commands[0] == "files") {
                 file->mode(Tfc::TfcFileMode::READ);
 
-                printf("%-10s\t%-10s\n", "ID", "Tags");
-                printf("%-10s\t%-10s\n", "----------", "----------");
+                printf("%-10s\t%-30s\t%-10s\n", "ID", "Name", "Tags");
+                printf("%-10s\t%-30s\t%-10s\n", "----------", "----------", "----------");
 
                 for (Tfc::BlobRecord* row : file->listBlobs()) {
                     printf("%-10d\t", row->getNonce()); // print nonce
 
+                    // print name
+                    printf("%-30s\t", row->getName().c_str());
+
                     // print tags
                     for(auto tag : row->getTags())
                         printf("%s ", tag->getName().c_str());
-
-                    // print hash
-                    /*for (int j = 0; j < 256; j++) {
-                        char current = row->getHash()[0];
-
-                        unsigned char byte = 0x00;
-                        byte |= current;
-
-                        printf("%02X", (unsigned int) (byte & 0xFF));
-                    }*/
 
                     printf("\n");
                 }
@@ -131,11 +124,11 @@ int main(int argc, char** argv) {
             if(commands[0] == "tags") {
                 file->mode(Tfc::TfcFileMode::READ);
 
-                printf("%-10s\t%-10s\n", "ID", "Name");
+                printf("%-10s\t%-10s\n", "Name", "File Count");
                 printf("%-10s\t%-10s\n", "----------", "----------");
 
                 for(Tfc::TagRecord* row : file->listTags())
-                    printf("%-10d\t%-10s\n", row->getNonce(), row->getName().c_str());
+                    printf("%-10s\t%-10lu\n", row->getName().c_str(), row->getBlobs().size());
 
                 file->mode(Tfc::TfcFileMode::CLOSED);
                 continue;
@@ -174,6 +167,42 @@ int main(int argc, char** argv) {
 
                 std::cout << status(true) << " Tagged " << nonce << " as " << commands[2] << "\n";
                 continue;
+            }
+
+            // search command
+            if (commands[0] == "search" && commands.size() > 1) {
+
+                // build a set of tags
+                std::vector<std::string> tags;
+                for(int i = 1; i < commands.size(); i++)
+                    tags.push_back(commands[i]);
+
+                // get a set of intersecting blobs
+                std::vector<Tfc::BlobRecord*> intersection;
+                file->mode(Tfc::TfcFileMode::READ);
+                intersection = file->intersection(tags);
+                file->mode(Tfc::TfcFileMode::CLOSED);
+
+                // print info for the resultant blobs
+                printf("%-10s\t%-30s\t%-10s\n", "ID", "Name", "Tags");
+                printf("%-10s\t%-30s\t%-10s\n", "----------", "----------", "----------");
+                for (Tfc::BlobRecord* row : intersection) {
+
+                    // print nonce
+                    printf("%-10d\t", row->getNonce());
+
+                    // print name
+                    printf("%-30s\t", row->getName().c_str());
+
+                    // print tags
+                    for(auto tag : row->getTags())
+                        printf("%s ", tag->getName().c_str());
+
+                    printf("\n");
+                }
+
+                continue;
+
             }
 
             // unknown command
@@ -278,10 +307,10 @@ void help() {
                    "\t%-25s\tadds a tag to a file\n"
                    "\t%-25s\tremoves a tag from a file\n"
                    "\t%-25s\tsearches for files matching the tags\n"
-                   "\t%-25s\tlists all files with their ID and hash\n"
-                   "\t%-25s\tlists all tags with their ID and name\n",
+                   "\t%-25s\tlists all files with their ID and tags\n"
+                   "\t%-25s\tlists all tags by their name\n",
     "--version", "--help", "help", "about", "clear", "init", "stash <filename>", "unstash <id> <filename>",
-           "(TBI) delete <id>", "tag <id> <tag>", "(TBI) untag <id> <tag>", "(TBI) search <tag> ...", "files",
+           "(TBI) delete <id>", "tag <id> <tag>", "(TBI) untag <id> <tag>", "search <tag> ...", "files",
            "tags");
 }
 
