@@ -1,7 +1,8 @@
-
 #include <cstring>
+#include <chrono>
 #include <endian.h>
-#include "picosha2/picosha2.h"
+#include <algorithm>
+#include "xxhash/xxhash.h"
 #include "TfcFile.h"
 
 using namespace Tfc;
@@ -203,8 +204,7 @@ void TfcFile::analyze() {
                     std::string name = this->readString();
 
                     // read the hash
-                    char hash[HASH_LEN];
-                    this->stream.read(hash, sizeof(hash));
+                    uint64_t hash = this->readUInt64();
 
                     // get start position
                     uint64_t start = this->readUInt64();
@@ -400,11 +400,12 @@ void TfcFile::jumpBack(std::streampos length) {
 /**
  * EDIT operation. Adds a blob to the container.
  *
+ * @param name The display name of the blob.
  * @param bytes Pointer to the raw bytes of the blob.
  * @param size The size of the blob in bytes.
  * @return The container index that was assigned to the blob.
  */
-uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
+uint32_t TfcFile::addBlob(const std::string &name, char *bytes, uint64_t size) {
     if(this->op != TfcFileMode::EDIT) // file must be in EDIT mode
         throw TfcFileException("File not in EDIT mode");
 
@@ -437,12 +438,11 @@ uint32_t TfcFile::addBlob(char *bytes, uint64_t size) {
      * Rewrite blob table with new entry
      */
 
-    // calculate sha256 hash
-    std::vector<unsigned char> hash(32);
-    picosha2::hash256(bytes, bytes + size, hash.begin(), hash.end());
+    // compute a hash of the data
+    uint64_t hash = this->hash(bytes, size);
 
     // create new record in blob table
-    BlobRecord* record = new BlobRecord(this->blobTableNextNonce++, "name goes here", reinterpret_cast<char*>(hash.data()), blobStartPos);
+    BlobRecord* record = new BlobRecord(this->blobTableNextNonce++, name, hash, blobStartPos);
     this->blobTable->add(record);
 
     // rewrite the blob table
@@ -486,7 +486,7 @@ void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
 
         // check if tag is already attached
         for(auto _tag : blobRow->getTags()) {
-            if(_tag == tagRow) // tag is already attache5d
+            if(_tag == tagRow) // tag is already attached
                 throw TfcFileException("Tag is already attached to this blob");
         }
 
@@ -513,16 +513,19 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
     if(this->op != TfcFileMode::READ)
         throw TfcFileException("File not in READ mode");
 
+    // get the blob's record
+    BlobRecord* record = this->blobTable->get(nonce);
+    if(record == nullptr)
+        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+
     // create a new blob struct
     auto* blob = new TfcFileBlob();
+    blob->record = record;
 
     // jump to blob file
-    BlobRecord* row = this->blobTable->get(nonce);
-    if(row == nullptr)
-        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
-    auto startPos = static_cast<uint64_t>(row->getStart());
+    auto startPos = static_cast<uint64_t>(record->getStart());
     this->jump(startPos);
-    delete row;
+    delete record;
 
     // read blob length
     blob->size = this->readUInt64();
@@ -571,7 +574,7 @@ std::vector<TagRecord*> TfcFile::listTags() {
 
 /**
  * READ operation. Given a vector of tag strings, a vector of BlobRecords are returned whose tags match all of the
- * tag strings.
+ * tag strings. This vector will be returned in a descending order of nonces.
  *
  * @param tags A vector of tags
  * @return A vector of BlobRecords whose tags contain all of the tags in the tags parameter.
@@ -599,18 +602,19 @@ std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &t
     }
 
     // sort the search set
-    std::sort(searchSet.begin(), searchSet.end());
+    std::sort(searchSet.begin(), searchSet.end(), TagRecord::asc);
 
     // build a union set of blob records (a set of blobs that have at least one of the tags)
     auto* unionSet = new std::vector<BlobRecord*>();
     for(const auto &tagRecord : searchSet) { // for each tag in search set
         std::vector<BlobRecord*> blobs = tagRecord->getBlobs(); // vector of blobs with this tag
-        std::sort(blobs.begin(), blobs.end());
+        std::sort(blobs.begin(), blobs.end(), BlobRecord::asc);
 
         // union blob with union set
         auto* newUnionSet = new std::vector<BlobRecord*>(unionSet->size() + blobs.size()); // pointer to the new union set
         std::vector<BlobRecord*>::iterator end;
-        end = std::set_union(unionSet->begin(), unionSet->end(), blobs.begin(), blobs.end(), newUnionSet->begin());
+        end = std::set_union(unionSet->begin(), unionSet->end(), blobs.begin(), blobs.end(), newUnionSet->begin(),
+                             BlobRecord::asc);
 
         // resize new union set
         newUnionSet->resize(static_cast<unsigned long>(end - newUnionSet->begin()));
@@ -626,12 +630,13 @@ std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &t
 
         // sort the blob record's tags
         std::vector<TagRecord*> blobTags = blobRecord->getTags();
-        std::sort(blobTags.begin(), blobTags.end());
+        std::sort(blobTags.begin(), blobTags.end(), TagRecord::asc);
 
         // check if the search set's tags are in the blob record's tags
         std::vector<TagRecord*> intersection(searchSet.size());
         std::vector<TagRecord*>::iterator end;
-        end = std::set_intersection(searchSet.begin(), searchSet.end(), blobTags.begin(), blobTags.end(), intersection.begin());
+        end = std::set_intersection(searchSet.begin(), searchSet.end(), blobTags.begin(), blobTags.end(),
+                                    intersection.begin(), TagRecord::asc);
 
         // resize the intersection set
         intersection.resize(static_cast<unsigned long>(end - intersection.begin()));
@@ -667,6 +672,64 @@ bool TfcFile::isUnlocked() {
  */
 bool TfcFile::doesExist() {
     return this->exists;
+}
+
+/**
+ * Computes a hash from a byte array using the XXH64 variant of the xxHash algorithm.
+ *
+ * @param bytes The bytes for which the hash will be computed.
+ * @param size The size of the bytes
+ * @return The computed hash for the bytes.
+ */
+uint64_t TfcFile::hash(char* bytes, size_t size) {
+
+    // create hash state for storing progress
+    XXH64_state_t* state = XXH64_createState();
+    if(state == nullptr) // error occurred
+        throw TfcFileException("Failed to allocate hash state");
+
+    // allocate buffer
+    size_t bufferSize = this->HASH_BUFFER_SIZE; // size of the buffer
+    const char* buffer = (char*)malloc(bufferSize);
+    if(buffer == nullptr)
+        throw TfcFileException("Failed to allocate hash buffer");
+
+    // set the seed for this hash
+    const unsigned long long seed = this->MAGIC_NUMBER; // we'll just use the file's magic number as the seed
+    const XXH_errorcode resetResult = XXH64_reset(state, seed);
+    if(resetResult == XXH_ERROR)
+        throw TfcFileException("Failed to seed the hash state");
+
+    // read bytes in blocks
+    while(size > 0) {
+
+        // determine how many bytes to read
+        size_t byteCount;
+        if(size >= this->HASH_BUFFER_SIZE)
+            byteCount = this->HASH_BUFFER_SIZE;
+        else
+            byteCount = size;
+
+        // read bytes into buffer
+        std::memcpy(bytes, buffer, byteCount);
+
+        // add buffer to hash
+        XXH_errorcode addResult = XXH64_update(state, buffer, byteCount);
+        if(addResult == XXH_ERROR)
+            throw TfcFileException("Failed to update hash state with block");
+
+        size -= byteCount;
+    }
+
+    // compute a hash digest
+    uint64_t digest = XXH64_digest(state);
+
+    // clean up
+    delete [] buffer;
+    XXH64_freeState(state);
+
+    return digest;
+
 }
 
 /**
@@ -722,10 +785,8 @@ void TfcFile::writeBlobTable() {
         // write name
         this->writeString(row->getName());
 
-        // write sha256 hash
-        this->stream.write(row->getHash(), HASH_LEN);
-        if(this->stream.fail())
-            throw TfcFileException("Failed to rewrite hash for " + row->getNonce());
+        // write hash
+        this->writeUInt64(row->getHash());
 
         // write start pos
         this->writeUInt64(static_cast<uint64_t>(row->getStart()));

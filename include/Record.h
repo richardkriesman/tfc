@@ -8,26 +8,41 @@
 
 namespace Tfc {
 
-    class TagRecord; // tag class pre-declaration;
+    // pre-declarations
+    class TagRecord;
 
-    class BlobRecord {
+    // record base class
+    class Record {
 
     public:
-        BlobRecord(uint32_t nonce, std::string name, const char *hash, std::streampos start);
+        explicit Record(uint32_t nonce);
 
-        bool operator<(BlobRecord* other);
+        // ordering functions
+        static bool asc(Record* record1, Record* record2);
+        static bool desc(Record* record1, Record* record2);
 
+        // accessors
         uint32_t getNonce() { return this->nonce; }
+
+    protected:
+        uint32_t nonce; // unique identifier for this record
+
+    };
+
+    class BlobRecord : public Record {
+
+    public:
+        BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start);
+
         std::string getName() { return this->name; }
-        char *getHash() { return this->hash; }
+        uint64_t getHash() { return this->hash; }
         std::streampos getStart() { return this->start; }
         std::vector<Tfc::TagRecord*> getTags() { return this->tags; }
         void addTag(Tfc::TagRecord* tag);
 
     private:
-        uint32_t nonce;                     // unique identifier for this blob
         std::string name;                   // original file name
-        char hash[32];                      // SHA256 hash
+        uint64_t hash;                      // file hash
         std::streampos start;               // starting byte position of the blob
         std::vector<Tfc::TagRecord* > tags; // vector of tag pointers
 
@@ -35,23 +50,18 @@ namespace Tfc {
 
     };
 
-    class TagRecord {
+    class TagRecord : public Record {
 
     public:
         TagRecord(uint32_t nonce, const std::string &name);
 
-        bool operator<(TagRecord* other);
-
-        const uint32_t getNonce() { return this->nonce; }
         const std::string getName() { return this->name; }
         const std::vector<Tfc::BlobRecord*> getBlobs() { return this->blobs; }
 
         void addBlob(Tfc::BlobRecord* blob);
 
     private:
-        uint32_t nonce;
         std::string name;
-
         std::vector<Tfc::BlobRecord*> blobs;
 
         friend class TagTable;

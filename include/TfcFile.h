@@ -5,6 +5,7 @@
 #include <string>
 #include <fstream>
 #include <arpa/inet.h>
+#include <chrono>
 
 #include "TfcFileException.h"
 #include "BlobTable.h"
@@ -20,6 +21,7 @@ namespace Tfc {
     };
 
     struct TfcFileBlob {
+        BlobRecord* record;
         uint64_t size;
         char* data;
     };
@@ -33,7 +35,7 @@ namespace Tfc {
         void mode(TfcFileMode mode);
         TfcFileMode getMode();
         void init();
-        uint32_t addBlob(char* bytes, uint64_t size);
+        uint32_t addBlob(const std::string &name, char* bytes, uint64_t size);
         void attachTag(uint32_t nonce, const std::string &tag);
         TfcFileBlob* readBlob(uint32_t nonce);
         std::vector<BlobRecord*> listBlobs();
@@ -50,11 +52,12 @@ namespace Tfc {
         const uint32_t MAGIC_NUMBER = 0xE621126E;
 
         // header field lengths (in bytes)
-        const int MAGIC_NUMBER_LEN = 4;
-        const int FILE_VERSION_LEN = 4;
-        const int DEK_LEN = 32;
-        const int HASH_LEN = 32;
-        const int NONCE_LEN = 4;
+        const unsigned int HASH_BUFFER_SIZE = 64;
+        const unsigned int MAGIC_NUMBER_LEN = 4;
+        const unsigned int FILE_VERSION_LEN = 4;
+        const unsigned int DEK_LEN = 32;
+        const unsigned int HASH_LEN = 32;
+        const unsigned int NONCE_LEN = 4;
 
         // file vars
         TfcFileMode op;           // current operation mode
@@ -80,6 +83,7 @@ namespace Tfc {
 
         void reset();
         void analyze();
+        uint64_t hash(char* bytes, size_t size);
         uint32_t readUInt32();
         uint64_t readUInt64();
         std::string readString();
@@ -91,7 +95,6 @@ namespace Tfc {
         void next(std::streampos length);
         void jump(std::streampos length);
         void jumpBack(std::streampos length);
-
     };
 
 }
