@@ -4,7 +4,9 @@
 #include <unistd.h>
 #include "TfcFile.h"
 #include "Terminal.h"
+#include "Task.h"
 
+void await(Task &task, const std::string &message);
 void help();
 std::string join(const std::vector<std::string> &strings, const std::string &delim);
 std::vector<std::string> parseInput(const std::string &input);
@@ -13,11 +15,8 @@ std::vector<std::string> split(const std::string &string, char delim);
 uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::string &path);
 std::string status(bool success = true);
 Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename = "");
-void spin(const std::string &message);
 
 int main(int argc, char** argv) {
-
-    spin("Working...");
 
     // check for proper number of arguments
     if(argc < 2) {
@@ -133,9 +132,24 @@ int main(int argc, char** argv) {
                 std::string name = path[path.size() - 1];
 
                 // stash the file
-                uint32_t nonce = stash(file, name, commands[1]);
+                Task task([&file, &name, &commands]() -> void* {
+                    auto* nonce = new uint32_t();
+                    *nonce = stash(file, name, commands[1]);
 
-                std::cout << status(true) << " Stashed " << name << " with ID " << nonce << "\n";
+                    return static_cast<void*>(nonce);
+                });
+
+                // wait for the task to complete
+                task.schedule();
+                await(task, "Stashing " + name);
+                if (task.getState() == TaskState::FAILED)
+                    throw task.getException();
+
+                // extract the nonce
+                auto* nonce = static_cast<uint32_t*>(task.getResult());
+
+                std::cout << status(true) << " Stashed " << name << " with ID " << *nonce << "\n";
+                delete nonce;
                 continue;
             }
 
@@ -145,14 +159,33 @@ int main(int argc, char** argv) {
                 if (nonce < 0)
                     throw Tfc::TfcFileException("File IDs cannot be negative");
 
-                if(commands.size() == 2) { // use original filename
-                    Tfc::BlobRecord* result = unstash(file, static_cast<uint32_t>(nonce));
-                    std::cout << status(true) << " Unstashed " << nonce << " into " << result->getName() << "\n";
-                } else { // use explicit filename
-                    unstash(file, static_cast<uint32_t>(nonce), commands[2]);
-                    std::cout << status(true) << " Unstashed " << nonce << " into " << commands[2] << "\n";
-                }
+                // unstash the file
+                Task task([&file, nonce, &commands]() -> void* {
+                    auto* name = new std::string();
 
+                    if(commands.size() == 2) { // use original filename
+                        Tfc::BlobRecord* result = unstash(file, static_cast<uint32_t>(nonce));
+                        *name = result->getName();
+                    } else { // use explicit filename
+                        unstash(file, static_cast<uint32_t>(nonce), commands[2]);
+                        *name = commands[2];
+                    }
+
+                    return static_cast<void*>(name);
+                });
+
+                // wait for the task to complete
+                task.schedule();
+                await(task, "Unstashing file");
+                if (task.getState() == TaskState::FAILED)
+                    throw task.getException();
+
+                // extract the name
+                auto* name = static_cast<std::string*>(task.getResult());
+
+                // output success message
+                std::cout << status(true) << " Unstashed " << nonce << " into " << *name << "\n";
+                delete name;
                 continue;
             }
 
@@ -167,7 +200,7 @@ int main(int argc, char** argv) {
                 file->mode(Tfc::TfcFileMode::EDIT);
                 for(int i = 2; i < commands.size(); i++) {
                     file->attachTag(static_cast<uint32_t>(nonce), commands[i]);
-                    std::cout << status(true) << " Tagged " << nonce << " as " << commands[2] << "\n";
+                    std::cout << status(true) << " Tagged " << nonce << " as " << commands[i] << "\n";
                 }
                 file->mode(Tfc::TfcFileMode::CLOSED);
 
@@ -215,6 +248,45 @@ int main(int argc, char** argv) {
 }
 
 /**
+ * Blocks the current thread, showing a spinner and message to the user while a Task runs.
+ *
+ * @param task The task to await.
+ * @param message A message to display to the user explaining the operation.
+ */
+void await(Task &task, const std::string &message) {
+    char states[] = { '-', '\\', '|', '/' }; // animation state
+    int i = 0; // current animation state
+
+    // print message
+    std::cout << "[" << Terminal::Decorations::BOLD << Terminal::Colors::YELLOW << states[i]
+              << Terminal::Decorations::RESET << "] " << message;
+
+    // animate spinner until task is done
+    TaskState state = task.getState();
+    while(state != TaskState::COMPLETED && state != TaskState::FAILED) {
+
+        // update animation state
+        std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << Terminal::Cursor::forward(1)
+                  << Terminal::Decorations::BOLD << Terminal::Colors::YELLOW << states[i]
+                  << Terminal::Decorations::RESET << Terminal::Cursor::RESTORE << std::flush;
+
+        // move to next animation state
+        if(i < 3)
+            i++;
+        else
+            i = 0;
+
+        // wait a little bit before trying again
+        usleep(75000);
+        state = task.getState();
+
+    }
+
+    // delete the "in progress line"
+    std::cout << Terminal::Cursor::HOME << Terminal::Cursor::ERASE_EOL << std::flush;
+}
+
+/**
  * Prints help text
  */
 void help() {
@@ -227,7 +299,7 @@ void help() {
                    "\t%-25s\tdisplays copyright information\n"
                    "\t%-25s\tclears the screen\n"
                    "\t%-25s\tcreates a new unencrypted container file\n"
-                   "\t%-25s\tsets the encryption key for the container\n"
+                   "\t%-25s\tconfigures encryption on this container\n"
                    "\t%-25s\tcopies a file into the container\n"
                    "\t%-25s\tcopies a file out of the container\n"
                    "\t%-25s\tdeletes a file from the container\n"
@@ -352,28 +424,6 @@ void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs) {
 
     }
 
-}
-
-void spin(const std::string &message) {
-    char states[] = { '-', '\\', '|', '/' };
-    int i = 0;
-
-    std::cout << "[" << states[i] << "] " << message;
-
-    #pragma clang diagnostic push
-    #pragma clang diagnostic ignored "-Wmissing-noreturn"
-    while(true) {
-        std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << Terminal::Cursor::forward(1) << states[i]
-                  << Terminal::Cursor::RESTORE << std::flush;
-
-        if(i < 3)
-            i++;
-        else
-            i = 0;
-
-        usleep(75000);
-    }
-    #pragma clang diagnostic pop
 }
 
 /**

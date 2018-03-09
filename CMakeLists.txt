@@ -3,7 +3,7 @@ project(tfc VERSION 0.0.1 LANGUAGES CXX C)
 
 # language options
 set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} -m64)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m64 -pthread")
 
 # output options
 set(CMAKE_BINARY_DIR ${PROJECT_SOURCE_DIR}/bin)
@@ -12,8 +12,9 @@ set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
 # sources
 set(HEADERS include/TfcFile.h include/TfcFileException.h include/Record.h include/TagTable.h include/BlobTable.h
-        include/Terminal.h)
-set(SOURCES src/main.cpp src/TfcFile.cpp src/TfcFileException.cpp src/Record.cpp src/TagTable.cpp src/BlobTable.cpp)
+        include/Terminal.h include/Task.h)
+set(SOURCES src/main.cpp src/TfcFile.cpp src/TfcFileException.cpp src/Record.cpp src/TagTable.cpp src/BlobTable.cpp
+        src/Task.cpp)
 
 # picosha2
 add_library(picosha2 include/picosha2.h)
