@@ -127,7 +127,7 @@ void TfcFile::analyze() {
     // current state of the analyzer
     enum AnalyzeState {
         HEADER,
-        BLOB_LIST,
+        BLOCK_LIST,
         TAG_TABLE,
         BLOB_TABLE,
         END
@@ -167,17 +167,14 @@ void TfcFile::analyze() {
 
                 state++;
                 break;
-            case AnalyzeState::BLOB_LIST:
-                this->blobListPos = this->stream.tellg();
+            case AnalyzeState::BLOCK_LIST:
+                this->blockListPos = this->stream.tellg();
 
-                // read number of blobs
-                blobCount = this->readUInt32();
+                // read number of blocks
+                this->blockCount = this->readUInt32();
 
-                // skip over the blobs
-                for(uint32_t i = 0; i < blobCount; i++) {
-                    uint64_t size = this->readUInt64(); // size of the blob
-                    this->next(size); // skip over blob bytes
-                }
+                // skip over the blocks
+                this->next(BLOCK_SIZE * this->blockCount);
 
                 state++;
                 break;
@@ -216,6 +213,9 @@ void TfcFile::analyze() {
                 // read next blob nonce
                 this->blobTableNextNonce = this->readUInt32();
 
+                // read blob count
+                blobCount = this->readUInt32();
+
                 // allocate new blob table (and dealloc any old one)
                 delete this->blobTable;
                 this->blobTable = new BlobTable();
@@ -235,8 +235,11 @@ void TfcFile::analyze() {
                     // get start position
                     uint64_t start = this->readUInt64();
 
+                    // get size
+                    uint64_t size = this->readUInt64();
+
                     // build blob record
-                    BlobRecord* blobRecord = new BlobRecord(nonce, name, hash, start);
+                    BlobRecord* blobRecord = new BlobRecord(nonce, name, hash, start, size);
 
                     // read tag count
                     uint32_t blobTagCount = this->readUInt32();
@@ -264,6 +267,7 @@ void TfcFile::analyze() {
 
                 state++;
                 break;
+
             default:
                 return;
         }
@@ -290,15 +294,16 @@ void TfcFile::init() {
     for(int i = 0; i < 8; i++) // 32 * 8 is 256, the size of the DEK
         this->writeUInt32(0x0);
 
-    // write blob list - just the count (which is 0) for now
+    // write block list - just the count (which is 0) for now
     this->writeUInt32(0);
 
     // write tag table - for an empty container, this is the next nonce (1) and the count
     this->writeUInt32(1);
     this->writeUInt32(0);
 
-    // write blob table - for an empty container, this is the next nonce (1)
+    // write blob table - for an empty container, this is the next nonce (1) and the blob count (0)
     this->writeUInt32(1);
+    this->writeUInt32(0);
 
     // flush the buffer
     this->stream.flush();
@@ -431,29 +436,109 @@ void TfcFile::jumpBack(std::streampos length) {
  * @param size The size of the blob in bytes.
  * @return The container index that was assigned to the blob.
  */
-uint32_t TfcFile::addBlob(const std::string &name, char *bytes, uint64_t size) {
+uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
     if(this->op != TfcFileMode::EDIT) // file must be in EDIT mode
         throw TfcFileException("File not in EDIT mode");
 
     /*
-     * Write blob bytes
+     * Write blob bytes to free blocks
      */
+    std::streamsize remainingSize = size;       // number of bytes still left to write
+    uint64_t bytePos = 0;                // where we are in the byte array
+    std::streampos firstBlockPos;        // position of first block in the block chain
+    std::streampos lastBlockNextPos = 0; // position of next pos in last block
+    std::streampos blockListDataStart = this->blockListPos // start of block list data section
+                                        + static_cast<std::streampos>(BLOCK_LIST_COUNT_SIZE);
+    std::streampos selectedBlock = 0;     // currently selected block
+    while(remainingSize > 0) { // we still have bytes to write
+        bool isFirstBlock = selectedBlock == 0; // first block always starts with selectedBlock == 0
 
-    // update blob count at beginning of blob list
-    this->jump(this->blobListPos);
-    this->writeUInt32(this->blobTable->size() + 1);
+        // find a free block
+        this->jump(blockListDataStart); // jump to block list data section start
+        char freeBlockBuf[BLOCK_SIZE];  // buffer for storing current block
+        while(selectedBlock < blockCount) { // only check existing blocks, we can also make new ones
 
-    // jump to beginning of tag table (where the new blob will be written)
-    this->jump(this->tagTablePos);
-    auto blobStartPos = static_cast<uint64_t>(this->stream.tellg());
+            // read block into memory
+            this->stream.read(freeBlockBuf, BLOCK_SIZE); // read block data and next pos (should be 0 for free blocks)
 
-    // write blob size
-    this->writeUInt64(static_cast<uint64_t>(size));
+            // check if block is free
+            bool free = true;
+            for(char byte : freeBlockBuf) {
+                if(byte != 0x0) {
+                    free = false;
+                    break;
+                }
+            }
+            if(free) { // we found a free block
+                this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock); // move back to start of free block
+                break;
+            }
 
-    // write bytes to file
-    this->stream.write(bytes, size);
-    if(this->stream.fail())
-        throw TfcFileException("Failed to write blob data");
+            // move to next block
+            selectedBlock += 1;
+            this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock);
+
+        }
+
+        // if first block, record first block's pos
+        if(isFirstBlock)
+            firstBlockPos = this->stream.tellg();
+
+        // update block count if we're writing to a new block
+        bool isNewBlock = selectedBlock >= blockCount;
+        if(isNewBlock) {
+
+            // jump to block count
+            this->jump(this->blockListPos);
+
+            // write new block count
+            this->writeUInt32(++this->blockCount);
+
+            // jump back to beginning of new block
+            this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock);
+
+        }
+
+        // determine number of bytes we need to write in this block
+        std::streamsize blockDataSize;
+        if(remainingSize > BLOCK_DATA_SIZE)
+            blockDataSize = BLOCK_DATA_SIZE;
+        else
+            blockDataSize = remainingSize;
+
+        // write data to block
+        this->stream.write(bytes + bytePos, blockDataSize);
+        if(this->stream.fail())
+            throw TfcFileException("Failed to write blob data");
+        bytePos += blockDataSize;
+
+        // update next pos of last block
+        if(lastBlockNextPos != 0) { // last block existed
+
+            // jump back to last block's next pos
+            this->jump(lastBlockNextPos);
+
+            // write start pos of selected block
+            this->writeUInt64(static_cast<uint64_t>(blockListDataStart + BLOCK_SIZE * selectedBlock));
+
+        }
+
+        // go to end of selected block's data section (start of next pos)
+        this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock
+            + static_cast<std::streampos>(BLOCK_DATA_SIZE));
+
+        // set this block's next pos so the next block will update it
+        lastBlockNextPos = this->stream.tellg();
+
+        // zero out next pos
+        char nextPosBuf[BLOCK_NEXT_SIZE] = {};
+        this->stream.write(nextPosBuf, BLOCK_NEXT_SIZE);
+
+        // subtract bytes we just wrote from remaining bytes
+        remainingSize -= blockDataSize;
+        selectedBlock += 1; // so next block we write starts after this block
+
+    }
 
     /*
      * Rewrite tag table
@@ -468,7 +553,7 @@ uint32_t TfcFile::addBlob(const std::string &name, char *bytes, uint64_t size) {
     uint64_t hash = this->hash(bytes, size);
 
     // create new record in blob table
-    BlobRecord* record = new BlobRecord(this->blobTableNextNonce++, name, hash, blobStartPos);
+    auto* record = new BlobRecord(this->blobTableNextNonce++, name, hash, firstBlockPos, size);
     this->blobTable->add(record);
 
     // rewrite the blob table
@@ -549,18 +634,37 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
     blob->record = record;
 
     // jump to blob file
-    auto startPos = static_cast<uint64_t>(record->getStart());
+    std::streampos startPos = record->getStart();
     this->jump(startPos);
-    delete record;
-
-    // read blob length
-    blob->size = this->readUInt64();
 
     // allocate memory for storing the blob bytes
-    blob->data = new char[blob->size];
+    blob->data = new char[blob->record->getSize()];
 
-    // copy bytes into the byte array
-    this->stream.read(blob->data, blob->size);
+    // read bytes from blocks
+    uint64_t remainingSize = blob->record->getSize();
+    while(remainingSize > 0) {
+
+        // determine number of bytes to read from block
+        uint64_t blockByteCount;
+        if(remainingSize > BLOCK_DATA_SIZE)
+            blockByteCount = BLOCK_DATA_SIZE;
+        else
+            blockByteCount = remainingSize;
+
+        // read bytes into the buffer
+        this->stream.read(blob->data + (blob->record->getSize() - remainingSize), blockByteCount);
+        if(this->stream.fail())
+            throw TfcFileException("Failed to read block");
+
+        // subtract bytes we just read from remaining
+        remainingSize -= blockByteCount;
+
+        // jump to position of next block
+        this->jump(startPos + static_cast<std::streampos>(BLOCK_DATA_SIZE));
+        startPos = this->readUInt64();
+        this->jump(startPos);
+
+    }
 
     return blob;
 
@@ -801,6 +905,9 @@ void TfcFile::writeBlobTable() {
     // update next nonce
     this->writeUInt32(this->blobTableNextNonce);
 
+    // write blob count
+    this->writeUInt32(this->blobTable->size());
+
     // rewrite blob table entries
     for(auto &iter : *this->blobTable) {
         BlobRecord* row = iter.second;
@@ -816,6 +923,9 @@ void TfcFile::writeBlobTable() {
 
         // write start pos
         this->writeUInt64(static_cast<uint64_t>(row->getStart()));
+
+        // write size
+        this->writeUInt64(row->getSize());
 
         // write tag count
         this->writeUInt32(static_cast<uint32_t >(row->getTags().size()));

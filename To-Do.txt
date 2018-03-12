@@ -1,0 +1,9 @@
+TFC To-Do
+------------
+ - Delete blobs (zero out data, next pos, rewrite blob table)
+ - Delete tags
+ - Update blobs (use existing blocks, extend or clear blocks)
+ - Untag blobs
+ - Transactions
+ - Encryption
+ - Some sort of networking?

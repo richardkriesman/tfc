@@ -38,7 +38,6 @@ namespace Tfc {
 
     struct TfcFileBlob {
         BlobRecord* record;
-        uint64_t size;
         char* data;
     };
 
@@ -68,11 +67,15 @@ namespace Tfc {
         const uint32_t MAGIC_NUMBER = 0xE621126E;
 
         // header field lengths (in bytes)
-        const unsigned int HASH_BUFFER_SIZE = 64;
-        const unsigned int MAGIC_NUMBER_LEN = 4;
-        const unsigned int FILE_VERSION_LEN = 4;
+        const unsigned int BLOCK_DATA_SIZE = 512;
+        const unsigned int BLOCK_LIST_COUNT_SIZE = 4;
+        const unsigned int BLOCK_NEXT_SIZE = 8;
+        const unsigned int BLOCK_SIZE = 520;
         const unsigned int DEK_LEN = 32;
+        const unsigned int FILE_VERSION_LEN = 4;
+        const unsigned int HASH_BUFFER_SIZE = 64;
         const unsigned int HASH_LEN = 32;
+        const unsigned int MAGIC_NUMBER_LEN = 4;
         const unsigned int NONCE_LEN = 4;
 
         // file vars
@@ -82,12 +85,13 @@ namespace Tfc {
         bool encrypted = false;   // whether the file is encrypted
         bool unlocked = true;     // whether the file is unlocked (true if unencrypted)
         bool exists = false;      // whether the file exists in the filesystem
+        uint32_t blockCount = 0;  // number of blocks in the block list
 
         // file section byte positions
         std::streampos headerPos;     // start position of header
         std::streampos tagTablePos;   // start position of tag table
         std::streampos blobTablePos;  // start position of blob table
-        std::streampos blobListPos;   // start position of blob list
+        std::streampos blockListPos;   // start position of blob list
 
         // next auto-increment table nonces
         uint32_t tagTableNextNonce;   // next nonce for a new tag

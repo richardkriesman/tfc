@@ -352,7 +352,7 @@ void about() {
                  "https://richardkriesman.com\n\n"
                  "This program comes with ABSOLUTELY NO WARRANTY.\n"
                  "This is free software, and you are welcome to redistribute it\n"
-                 "under certain conditions.\n";
+                 "under certain conditions. Type `license` for details.\n";
 }
 
 /**
@@ -671,10 +671,10 @@ Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &fil
         blobFilename = filename;
 
     // open the file for writing
-    std::ofstream stream(blobFilename, std::ios::out | std::ios::binary);
+    std::ofstream stream(blobFilename.c_str(), std::ios::out | std::ios::binary);
     if(stream.fail())
         throw Tfc::TfcFileException("Failed to open file " + blobFilename + " for writing");
-    stream.write(blob->data, blob->size);
+    stream.write(blob->data, blob->record->getSize());
     stream.close();
 
     // clean up

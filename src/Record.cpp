@@ -42,11 +42,13 @@ bool Record::desc(Record* record1, Record* record2) {
     return record1->nonce > record2->nonce;
 }
 
-BlobRecord::BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start) : Record(nonce)  {
+BlobRecord::BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start, uint64_t size)
+        : Record(nonce)  {
     this->nonce = nonce;
     this->name = name;
     this->hash = hash;
     this->start = start;
+    this->size = size;
 }
 
 void BlobRecord::addTag(Tfc::TagRecord* tag) {

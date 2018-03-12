@@ -48,17 +48,19 @@ namespace Tfc {
     class BlobRecord : public Record {
 
     public:
-        BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start);
+        BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start, uint64_t size);
 
         std::string getName() { return this->name; }
         uint64_t getHash() { return this->hash; }
         std::streampos getStart() { return this->start; }
         std::vector<Tfc::TagRecord*> getTags() { return this->tags; }
+        uint64_t getSize() { return this->size; }
         void addTag(Tfc::TagRecord* tag);
 
     private:
         std::string name;                   // original file name
         uint64_t hash;                      // file hash
+        uint64_t size;                      // file size
         std::streampos start;               // starting byte position of the blob
         std::vector<Tfc::TagRecord* > tags; // vector of tag pointers
 
