@@ -1,14 +1,38 @@
+/*
+ * Tagged File Containers
+ * Copyright (C) 2018 Richard Kriesman.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 #include <iostream>
 #include <vector>
 #include <sstream>
 #include <unistd.h>
+#include <algorithm>
 #include "TfcFile.h"
 #include "Terminal.h"
 #include "Task.h"
+#include "License.h"
 
+/**
+ * Forward declarations
+ */
+void about();
 void await(Task &task, const std::string &message);
 void help();
 std::string join(const std::vector<std::string> &strings, const std::string &delim);
+void license();
 std::vector<std::string> parseInput(const std::string &input);
 void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs);
 std::vector<std::string> split(const std::string &string, char delim);
@@ -16,12 +40,18 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::strin
 std::string status(bool success = true);
 Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename = "");
 
+/**
+ * The main function. Parses and runs commands.
+ */
 int main(int argc, char** argv) {
+    bool isInteractive = false; // whether the client is operating in interactive mode
 
     // check for proper number of arguments
     if(argc < 2) {
         help();
         return 1;
+    } else if (argc == 2) { // only filename was provided, run in interactive mode
+        isInteractive = true;
     }
     std::string filename = argv[1]; // filename, may also be --help or --version
 
@@ -32,16 +62,60 @@ int main(int argc, char** argv) {
     } else if(filename == "--version") { // version flag
         std::cout << "Tagged File Containers (TFC) v" << VERSION << "\n";
         return 0;
+    } else if(filename == "--about") {
+        about();
+        return 0;
+    } else if(filename == "--license") {
+        license();
+        return 0;
     }
 
     // try to open a file
     Tfc::TfcFile* file = nullptr;
     try {
-        std::string extension(".tfc");
-        file = new Tfc::TfcFile(filename + extension);
+        file = new Tfc::TfcFile(filename);
+        if(file->doesExist())
+            file->mode(Tfc::READ);
     } catch (Tfc::TfcFileException &ex) {
         std::cerr << "tfc: " << ex.what() << "\n";
         return 1;
+    }
+
+    // if non-interactive mode, build a list of commands to be parsed
+    std::vector<std::string> commands;
+    if(!isInteractive) {
+        std::string command; // current command under construction
+
+        // parse each arg
+        for(int i = 2; i < argc; i++) {
+            std::string arg(argv[i]);
+
+            // determine if this is a new command (starts with --)
+            bool isNewCommand = arg.find("--") == 0;
+
+            // handle new commands
+            if(isNewCommand) {
+                if(!command.empty()) // not first command, add current one to the command list
+                    commands.push_back(command);
+                command = arg.substr(2);
+                continue;
+            }
+
+            // add arg to command string
+            if(!command.empty()) // valid command has been started
+                command += " " + arg;
+
+        }
+
+        // add last command string to command vector
+        if(!command.empty()) // valid command has been started
+            commands.push_back(command);
+
+        // invalid command structure, show help
+        if(commands.empty()) {
+            std::cerr << "tfc: Invalid command syntax\n";
+            return 1;
+        }
     }
 
     // print encryption warning if file is not encrypted
@@ -53,88 +127,109 @@ int main(int argc, char** argv) {
 
     // handle commands
     std::string input;
-    while(input != "exit") {
+    int currentCommand = 0; // current command index when running in non-interactive mode
+    while(input != "exit" && isInteractive || currentCommand < commands.size()) {
 
         // print prompt
-        if(file->isUnlocked() && file->doesExist())
+        if (file->isUnlocked() && file->doesExist())
             std::cout << Terminal::Colors::GREEN;
         else
             std::cout << Terminal::Colors::GREY;
         std::cout << "tfc> " << Terminal::Decorations::RESET;
 
         // get input
-        std::getline(std::cin, input);
-        std::vector<std::string> commands = parseInput(input);
+        if(isInteractive) { // interactive mode, prompt for input
+            std::getline(std::cin, input);
+        } else { // non-interactive mode, get input commands vector
+            input = commands[currentCommand++];
+            std::cout << input << "\n";
+        }
+
+        // parse input
+        std::vector<std::string> args = parseInput(input);
 
         // process input
         try {
 
             // help command
-            if (commands[0] == "help") {
+            if (args[0] == "help") {
                 help();
                 continue;
             }
 
             // about command
-            if (commands[0] == "about") {
-                std::cout << Terminal::Decorations::BOLD <<  "Tagged File Containers (TFC)\n\n"
-                          << Terminal::Decorations::RESET
-                          << "Copyright © Richard Kriesman 2018.\n"
-                             "https://richardkriesman.com\n\n"
-                             "The TFC client and libtfc library are released under the MIT License.\n"
-                             "You are free to share and modify this software.\n";
+            if (args[0] == "about") {
+                about();
+                continue;
+            }
 
+            // license command
+            if (args[0] == "license") {
+                license();
                 continue;
             }
 
             // clear screen command
-            if (commands[0] == "clear") {
+            if (args[0] == "clear") {
                 std::cout << Terminal::Screen::CLEAR << status(true) << " Cleared screen\n";
                 continue;
             }
 
             // init command
-            if (commands[0] == "init") {
+            if (args[0] == "init") {
                 file->mode(Tfc::TfcFileMode::CREATE);
                 file->init();
-                file->mode(Tfc::TfcFileMode::CLOSED);
+                file->mode(Tfc::TfcFileMode::READ);
                 std::cout << status(true) << " Created container file at " << filename << "\n";
                 continue;
             }
 
             // list files command
-            if(commands[0] == "files") {
+            if(args[0] == "files") {
                 file->mode(Tfc::TfcFileMode::READ);
                 printBlobs(file->listBlobs());
-                file->mode(Tfc::TfcFileMode::CLOSED);
                 continue;
             }
 
             // list tags command
-            if(commands[0] == "tags") {
+            if(args[0] == "tags") {
                 file->mode(Tfc::TfcFileMode::READ);
+                std::vector<Tfc::TagRecord*> tags = file->listTags();
 
-                printf("%-10s\t%-10s\n", "Name", "File Count");
-                printf("%-10s\t%-10s\n", "----------", "----------");
+                // determine the longest tag name
+                unsigned long nameLength = 10; // default to 10 chars
+                for(Tfc::TagRecord* tag : tags) {
+                    if(tag->getName().length() > nameLength)
+                        nameLength = tag->getName().length();
+                }
 
-                for(Tfc::TagRecord* row : file->listTags())
-                    printf("%-10s\t%-10lu\n", row->getName().c_str(), row->getBlobs().size());
+                // build string templates
+                std::string headerTemplate = std::string("%-" + std::to_string(nameLength) + "s\t%-10s\n");
+                std::string rowTemplate = std::string("%-" + std::to_string(nameLength) + "s\t%-10lu\n");
+
+                // print headers
+                printf(headerTemplate.c_str(), "Name", "File Count");
+                printf(headerTemplate.c_str(), "----------", "----------");
+
+                // print tags
+                for(Tfc::TagRecord* tag : file->listTags())
+                    printf(rowTemplate.c_str(), tag->getName().c_str(), tag->getBlobs().size());
 
                 file->mode(Tfc::TfcFileMode::CLOSED);
                 continue;
             }
 
             // stash command
-            if (commands[0] == "stash" && commands.size() == 2) {
+            if (args[0] == "stash" && args.size() == 2) {
 
                 // determine the name of the file
-                std::vector<std::string> path = split(commands[1], '/');
+                std::vector<std::string> path = split(args[1], '/');
                 std::string name = path[path.size() - 1];
 
                 // stash the file
-                Task task([&file, &name, &commands]() -> void* {
+                Task task([&file, &name, &args]() -> void* {
                     auto* nonce = new uint32_t();
-                    *nonce = stash(file, name, commands[1]);
+                    *nonce = stash(file, name, args[1]);
 
                     return static_cast<void*>(nonce);
                 });
@@ -154,21 +249,21 @@ int main(int argc, char** argv) {
             }
 
             // unstash command
-            if (commands[0] == "unstash" && (commands.size() == 2 || commands.size() == 3)) {
-                int32_t nonce = std::stoi(commands[1]);
+            if (args[0] == "unstash" && (args.size() == 2 || args.size() == 3)) {
+                int32_t nonce = std::stoi(args[1]);
                 if (nonce < 0)
                     throw Tfc::TfcFileException("File IDs cannot be negative");
 
                 // unstash the file
-                Task task([&file, nonce, &commands]() -> void* {
+                Task task([&file, nonce, &args]() -> void* {
                     auto* name = new std::string();
 
-                    if(commands.size() == 2) { // use original filename
+                    if(args.size() == 2) { // use original filename
                         Tfc::BlobRecord* result = unstash(file, static_cast<uint32_t>(nonce));
                         *name = result->getName();
                     } else { // use explicit filename
-                        unstash(file, static_cast<uint32_t>(nonce), commands[2]);
-                        *name = commands[2];
+                        unstash(file, static_cast<uint32_t>(nonce), args[2]);
+                        *name = args[2];
                     }
 
                     return static_cast<void*>(name);
@@ -190,17 +285,17 @@ int main(int argc, char** argv) {
             }
 
             // tag command
-            if (commands[0] == "tag" && commands.size() >= 3) {
-                int32_t nonce = std::stoi(commands[1]);
+            if (args[0] == "tag" && args.size() >= 3) {
+                int32_t nonce = std::stoi(args[1]);
                 if (nonce < 0)
                     throw Tfc::TfcFileException("File IDs cannot be negative");
 
                 // attach the tags
                 file->mode(Tfc::TfcFileMode::READ);
                 file->mode(Tfc::TfcFileMode::EDIT);
-                for(int i = 2; i < commands.size(); i++) {
-                    file->attachTag(static_cast<uint32_t>(nonce), commands[i]);
-                    std::cout << status(true) << " Tagged " << nonce << " as " << commands[i] << "\n";
+                for(int i = 2; i < args.size(); i++) {
+                    file->attachTag(static_cast<uint32_t>(nonce), args[i]);
+                    std::cout << status(true) << " Tagged " << nonce << " as " << args[i] << "\n";
                 }
                 file->mode(Tfc::TfcFileMode::CLOSED);
 
@@ -208,12 +303,12 @@ int main(int argc, char** argv) {
             }
 
             // search command
-            if (commands[0] == "search" && commands.size() > 1) {
+            if (args[0] == "search" && args.size() > 1) {
 
                 // build a set of tags
                 std::vector<std::string> tags;
-                for(int i = 1; i < commands.size(); i++)
-                    tags.push_back(commands[i]);
+                for(int i = 1; i < args.size(); i++)
+                    tags.push_back(args[i]);
 
                 // get a set of intersecting blobs
                 std::vector<Tfc::BlobRecord*> intersection;
@@ -229,7 +324,7 @@ int main(int argc, char** argv) {
             }
 
             // unknown command
-            if(commands[0] != "exit")
+            if(args[0] != "exit")
                 std::cerr << status(false) << " Invalid command. Type \"help\" for a list of commands.\n";
 
         } catch (Tfc::TfcFileException &ex) {
@@ -245,6 +340,19 @@ int main(int argc, char** argv) {
 
     return 0;
 
+}
+
+/**
+ * Prints the about page and copyright information.
+ */
+void about() {
+    std::cout << Terminal::Decorations::BOLD <<  "Tagged File Containers (TFC)\n\n"
+              << Terminal::Decorations::RESET
+              << "Copyright © Richard Kriesman 2018.\n"
+                 "https://richardkriesman.com\n\n"
+                 "This program comes with ABSOLUTELY NO WARRANTY.\n"
+                 "This is free software, and you are welcome to redistribute it\n"
+                 "under certain conditions.\n";
 }
 
 /**
@@ -291,12 +399,15 @@ void await(Task &task, const std::string &message) {
  */
 void help() {
     printf("Tagged File Containers\n\n"
-                   "Usage: tfc <filename>\n"
-                   "\t%-25s\tprints the version\n"
-                   "\t%-25s\tprints this help page\n\n"
+                   "Usage: tfc <filename> [commands]...\n"
+                   "\t%-25s\tprints copyright information\n"
+                   "\t%-25s\tprints this help page\n"
+                   "\t%-25s\tprints the license\n"
+                   "\t%-25s\tprints the version\n\n"
                    "Commands:\n"
                    "\t%-25s\tprints this help page\n"
-                   "\t%-25s\tdisplays copyright information\n"
+                   "\t%-25s\tprints copyright information\n"
+                   "\t%-25s\tprints the license\n"
                    "\t%-25s\tclears the screen\n"
                    "\t%-25s\tcreates a new unencrypted container file\n"
                    "\t%-25s\tconfigures encryption on this container\n"
@@ -307,10 +418,21 @@ void help() {
                    "\t%-25s\tremoves a tag from a file\n"
                    "\t%-25s\tsearches for files matching the tags\n"
                    "\t%-25s\tlists all files with their ID and tags\n"
-                   "\t%-25s\tlists all tags by their name\n",
-           "--version", "--help", "help", "about", "clear", "init", "(TBI) key <key>", "stash <filename>",
-           "unstash <id> [filename]", "(TBI) delete <id>", "tag <id> <tag> ...", "(TBI) untag <id> <tag>",
-           "search <tag> ...", "files", "tags");
+                   "\t%-25s\tlists all tags by their name\n\n"
+                   "Interactive Mode:\n"
+                   "\tYou can start tfc in interactive mode by omitting commands in the \n"
+                   "\tcommand line. Only the filename should be specified. Interactive mode \n"
+                   "\tis useful when using tfc as a human operator because it will shorten \n"
+                   "\tcommand invocations and store the container's encryption key in memory \n"
+                   "\tduring the session.\n\n"
+                   "Non-interactive Mode:\n"
+                   "\tYou can start tfc in non-interactive mode by passing command-line \n"
+                   "\targuments to tfc. This can be useful when using tfc with scripting. \n"
+                   "\tCommands can be run in non-interactive mode by prefixing the command \n"
+                   "\twith --. For example, `--stash cute-cat.png`.\n",
+           "--about", "--help", "--license", "--version", "help", "about", "license", "clear", "init",
+           "(TBI) key <key>", "stash <filename>", "unstash <id> [filename]", "(TBI) delete <id>", "tag <id> <tag> ...",
+           "(TBI) untag <id> <tag>", "search <tag> ...", "files", "tags");
 }
 
 /**
@@ -328,6 +450,13 @@ std::string join(const std::vector<std::string> &strings, const std::string &del
             result += delim;
     }
     return result;
+}
+
+/**
+ * Prints the license.
+ */
+void license() {
+    std::cout << LICENSE;
 }
 
 /**
@@ -389,38 +518,61 @@ std::vector<std::string> parseInput(const std::string &input) {
  * @param blobs A vector of blobs to print.
  */
 void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs) {
-
-    // determine the size of the name field
-    unsigned long nameSize = 10; // default to 10 chars
-    for(Tfc::BlobRecord* record : blobs)
-        if(record->getName().size() > 10)
-            nameSize = record->getName().size();
+    const int ID_LEN       = 10; // length of the id column
+    const int HASH_LEN     = 16; // length of the hash column
+    const int TAGS_LEN     = 10; // length of the tag column header
+    const int MAX_LINE_LEN = 80; // maximum length of a line
 
     // build template strings for printing
-    std::string headerTemplate = std::string("%-10s\t%-" + std::to_string(nameSize) + "s\t%-16s\t%-10s\n");
-    std::string nameTemplate = std::string("%-" + std::to_string(nameSize) + "s\t");
+    std::string headerTemplate = std::string("%-" + std::to_string(ID_LEN) + "s  %-" + std::to_string(HASH_LEN)
+                                             + "s  %-" + std::to_string(TAGS_LEN) + "s\n");
 
     // print info for the resultant blobs
-    printf(headerTemplate.c_str(), "ID", "Name", "Hash", "Tags");
-    printf(headerTemplate.c_str(), "----------", "----------", "----------", "----------");
+    unsigned long tagColStart = (ID_LEN + 2) + (HASH_LEN + 2); // start pos of the tag column
+    printf(headerTemplate.c_str(), "ID", "Hash", "Tags");
+    printf(headerTemplate.c_str(), "----------", "----------", "----------");
     for (Tfc::BlobRecord* record : blobs) {
 
         // print nonce
-        printf("%-10d\t", record->getNonce());
-
-        // print name
-        printf(nameTemplate.c_str(), record->getName().c_str());
+        printf("%-10d  ", record->getNonce());
 
         // print hash as hex
-        printf("%llx\t", static_cast<unsigned long long>(record->getHash()));
+        printf("%llx  ", static_cast<unsigned long long>(record->getHash()));
 
         // build vector of tag names
         std::vector<std::string> tagNames;
         for(auto tag : record->getTags())
             tagNames.push_back(tag->getName());
 
-        // join and print tag names
-        printf("%s\n", join(tagNames, ", ").c_str());
+        // sort the tag names
+        std::sort(tagNames.begin(), tagNames.end());
+
+        // join and print tag names with proper line breaking
+        unsigned long lineLength = tagColStart;
+        for(unsigned long i = 0; i < tagNames.size(); i++) {
+            auto tag = tagNames[i];
+
+            // build the line to be printed
+            std::string printTag = tag;
+            if(i + 1 < tagNames.size())
+                printTag += ", ";
+
+            // if line exceeds max length, break to next line
+            if(lineLength + printTag.length() > MAX_LINE_LEN) {
+                printf("%c", '\n');
+                lineLength = tagColStart;
+
+                // print spacing up to start of tag column
+                for(unsigned long j = 0; j < tagColStart; j++)
+                    printf("%c", ' ');
+            }
+
+            // print tag
+            printf("%s", printTag.c_str());
+            lineLength += printTag.length();
+
+        }
+        printf("\n");
 
     }
 

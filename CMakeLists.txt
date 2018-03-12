@@ -14,19 +14,14 @@ set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 set(HEADERS include/TfcFile.h include/TfcFileException.h include/Record.h include/TagTable.h include/BlobTable.h
         include/Terminal.h include/Task.h)
 set(SOURCES src/main.cpp src/TfcFile.cpp src/TfcFileException.cpp src/Record.cpp src/TagTable.cpp src/BlobTable.cpp
-        src/Task.cpp)
-
-# picosha2
-add_library(picosha2 include/picosha2.h)
-set_target_properties(picosha2 PROPERTIES LINKER_LANGUAGE CXX)
-target_include_directories(picosha2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        src/Task.cpp include/License.h)
 
 # xxhash
 add_subdirectory(lib/xxhash/cmake_unofficial)
 
 # primary build target
 add_executable(tfc ${HEADERS} ${SOURCES})
-target_link_libraries(tfc xxhash)
+target_link_libraries(tfc PRIVATE xxhash)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 target_compile_definitions(tfc PRIVATE VERSION=\"${PROJECT_VERSION}\")

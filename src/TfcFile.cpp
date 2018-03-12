@@ -1,3 +1,20 @@
+/*
+ * Tagged File Containers
+ * Copyright (C) 2018 Richard Kriesman.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
 #include <cstring>
 #include <chrono>
 #include <endian.h>
@@ -37,6 +54,8 @@ void TfcFile::mode(TfcFileMode mode) {
             this->reset();
             break;
         case TfcFileMode::READ: // open file for reading
+            if(this->op == TfcFileMode::READ)
+                break;
             if(this->op != TfcFileMode::CLOSED)
                 this->reset();
 
@@ -51,6 +70,8 @@ void TfcFile::mode(TfcFileMode mode) {
 
             break;
         case TfcFileMode::CREATE: // open a new file
+            if(this->op == TfcFileMode::CREATE)
+                break;
             if(this->op != TfcFileMode::CLOSED)
                 this->reset();
 
@@ -62,6 +83,8 @@ void TfcFile::mode(TfcFileMode mode) {
             break;
 
         case TfcFileMode::EDIT: // open file for editing
+            if(this->op == TfcFileMode::EDIT)
+                break;
             if(this->op != TfcFileMode::CLOSED)
                 this->reset();
 
@@ -112,6 +135,7 @@ void TfcFile::analyze() {
     int state = AnalyzeState::HEADER;
 
     // read based on state
+    uint32_t magicNumber;
     uint32_t tagCount;
     uint32_t blobCount = 0;
     uint32_t version;
@@ -120,13 +144,15 @@ void TfcFile::analyze() {
             case AnalyzeState::HEADER:
                 this->headerPos = this->stream.tellg(); // header position
 
-                // skip to tag table
-                this->stream.seekg(MAGIC_NUMBER_LEN);
+                // check magic number
+                magicNumber = this->readUInt32();
+                if(magicNumber != MAGIC_NUMBER)
+                    throw TfcFileException("Not a valid container file");
 
                 // check file version
                 version = this->readUInt32();
                 if(version > FILE_VERSION)
-                    throw TfcFileException("tfc: Container version mismatch. Must be <= " + FILE_VERSION);
+                    throw TfcFileException("Container version mismatch. Must be <= " + FILE_VERSION);
 
                 // check if file is encrypted (DEK will be all 0s)
                 char dek[32];
