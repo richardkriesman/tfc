@@ -44,8 +44,11 @@ void Looper::loop(Looper* looper) {
         std::unique_lock<std::mutex> lock(looper->mutex);
 
         // if no tasks in queue, wait for a task to be added
-        if (looper->taskQueue.empty())
-            looper->taskScheduledCond.wait_for(lock, std::chrono::seconds(3));
+        if (looper->taskQueue.empty()) {
+            lock.unlock();
+            looper->scheduled.waitFor(std::chrono::seconds(3));
+            lock.lock();
+        }
 
         // run a task in the queue
         if (!looper->taskQueue.empty()) {
@@ -100,7 +103,7 @@ void Looper::loop(Looper* looper) {
     }
 
     // notify waiting threads that the Looper has stopped
-    looper->stopCond.notify_all();
+    looper->stopped.raise();
 }
 
 /**
@@ -141,13 +144,14 @@ void Looper::run(Task *task) {
     // build a ControlHandle for the Task
     auto* handle = new TaskHandle(task);
     this->taskQueue.push(handle);
+
+    // notify the loop that a new task was scheduled
+    this->scheduled.raise();
 }
 
 /**
  * Blocks the current thread until the Looper has stopped.
  */
 void Looper::wait() {
-    std::unique_lock<std::mutex> lock(this->mutex);
-    this->stopCond.wait(lock);
-    lock.unlock();
+    this->stopped.wait();
 }

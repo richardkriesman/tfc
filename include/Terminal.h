@@ -22,12 +22,9 @@
 
 namespace Terminal {
 
-    class Colors {
+    class Background {
     public:
-        static constexpr const auto RED    = "\u001b[31m";
-        static constexpr const auto YELLOW = "\u001b[33m";
-        static constexpr const auto GREEN  = "\u001b[32m";
-        static constexpr const auto GREY   = "\u001b[37m";
+        static constexpr const auto WHITE = "\u001b[47m";
     };
 
     class Cursor {
@@ -46,6 +43,14 @@ namespace Terminal {
     public:
         static constexpr const auto BOLD   = "\u001b[1m";
         static constexpr const auto RESET  = "\u001b[0m";
+    };
+
+    class Foreground {
+    public:
+        static constexpr const auto RED    = "\u001b[31m";
+        static constexpr const auto YELLOW = "\u001b[33m";
+        static constexpr const auto GREEN  = "\u001b[32m";
+        static constexpr const auto GREY   = "\u001b[37m";
     };
 
     class Screen {

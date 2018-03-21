@@ -105,6 +105,6 @@ std::exception_ptr Task::getException() {
 void *Task::wait() {
     this->done.wait();
     if (this->state == FAILED)
-        throw this->getException();
+        std::rethrow_exception(this->getException());
     return this->result;
 }

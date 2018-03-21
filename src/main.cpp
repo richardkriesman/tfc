@@ -125,9 +125,14 @@ int main(int argc, char** argv) {
         }
     }
 
+    // create interactive task interface at top of screen
+    if (isInteractive) {
+        //std::cout << Terminal::Background::WHITE << "                    " << Terminal::Decorations::RESET;
+    }
+
     // print encryption warning if file is not encrypted
     if(!file->isEncrypted() && file->doesExist()) {
-        std::cout << Terminal::Decorations::BOLD << Terminal::Colors::YELLOW << "Warning: "
+        std::cout << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << "Warning: "
                   << Terminal::Decorations::RESET;
         std::cout << "This container is not encrypted. Files can be unstashed by anyone!\n";
     }
@@ -139,9 +144,9 @@ int main(int argc, char** argv) {
 
         // print prompt
         if (file->isUnlocked() && file->doesExist())
-            std::cout << Terminal::Colors::GREEN;
+            std::cout << Terminal::Foreground::GREEN;
         else
-            std::cout << Terminal::Colors::GREY;
+            std::cout << Terminal::Foreground::GREY;
         std::cout << "tfc> " << Terminal::Decorations::RESET;
 
         // get input
@@ -236,7 +241,7 @@ int main(int argc, char** argv) {
                 // stash the file
                 auto* stashTask = new Tasker::Task([&file, &name, &args](Tasker::TaskHandle* handle) -> void* {
                     auto* nonce = new uint32_t();
-                    *nonce = stash(file, name, args[0]);
+                    *nonce = stash(file, name, args[1]);
 
                     return static_cast<void*>(nonce);
                 });
@@ -245,7 +250,7 @@ int main(int argc, char** argv) {
                 looper.run(stashTask);
                 await(stashTask, "Stashing " + name);
                 if (stashTask->getState() == Tasker::TaskState::FAILED)
-                    throw stashTask->getException();
+                    std::rethrow_exception(stashTask->getException());
 
                 // extract the nonce
                 auto* nonce = static_cast<uint32_t*>(stashTask->getResult());
@@ -281,7 +286,7 @@ int main(int argc, char** argv) {
                 looper.run(task);
                 await(task, "Unstashing file");
                 if (task->getState() == Tasker::TaskState::FAILED)
-                    throw task->getException();
+                    std::rethrow_exception(task->getException());
 
                 // extract the name
                 auto* name = static_cast<std::string*>(task->getResult());
@@ -374,7 +379,7 @@ void await(Tasker::Task* task, const std::string &message) {
     int i = 0; // current animation state
 
     // print message
-    std::cout << "[" << Terminal::Decorations::BOLD << Terminal::Colors::YELLOW << states[i]
+    std::cout << "[" << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << states[i]
               << Terminal::Decorations::RESET << "] " << message;
 
     // animate spinner until task is done
@@ -383,7 +388,7 @@ void await(Tasker::Task* task, const std::string &message) {
 
         // update animation state
         std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << Terminal::Cursor::forward(1)
-                  << Terminal::Decorations::BOLD << Terminal::Colors::YELLOW << states[i]
+                  << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << states[i]
                   << Terminal::Decorations::RESET << Terminal::Cursor::RESTORE << std::flush;
 
         // move to next animation state
@@ -645,9 +650,9 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::strin
 std::string status(bool success) {
     std::string statusStr = "[" + std::string(Terminal::Decorations::BOLD);
     if(success)
-        statusStr += std::string(Terminal::Colors::GREEN) + std::string(Terminal::Symbols::CHECKMARK);
+        statusStr += std::string(Terminal::Foreground::GREEN) + std::string(Terminal::Symbols::CHECKMARK);
     else
-        statusStr += std::string(Terminal::Colors::RED) + std::string(Terminal::Symbols::CROSSMARK);
+        statusStr += std::string(Terminal::Foreground::RED) + std::string(Terminal::Symbols::CROSSMARK);
     statusStr += std::string(Terminal::Decorations::RESET) + "]";
     return statusStr;
 }

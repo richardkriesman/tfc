@@ -35,3 +35,16 @@ void Event::wait() {
     this->cond.wait(lock);
     lock.unlock();
 }
+
+/**
+ * Blocks the current thread until the event is raised, or until a period of time has passed.
+ *
+ * @param length The maximum amount of time to wait.
+ * @return True if the wait stopped because the event was raised. False if the event timed out.
+ */
+bool Event::waitFor(std::chrono::seconds const &length) {
+    std::unique_lock<std::mutex> lock(this->mutex);
+    std::cv_status status = this->cond.wait_for(lock, length);
+    lock.unlock();
+    return status == std::cv_status::timeout;
+}

@@ -43,6 +43,20 @@ namespace Tasker {
     };
 
 
+    class Event {
+
+    public:
+        void raise();
+        void wait();
+        bool waitFor(std::chrono::seconds const &length);
+
+    private:
+        std::mutex mutex;
+        std::condition_variable cond;
+
+    };
+
+
     class Looper {
 
     public:
@@ -61,23 +75,13 @@ namespace Tasker {
         // synchronization vars
         bool shouldStop = false;
         std::mutex mutex;
-        std::condition_variable taskScheduledCond;
-        std::condition_variable stopCond;
+
+        // events
+        Event scheduled;
+        Event stopped;
 
         // functions
         static void loop(Looper* looper);
-
-    };
-
-    class Event {
-
-    public:
-        void raise();
-        void wait();
-
-    private:
-        std::mutex mutex;
-        std::condition_variable cond;
 
     };
 
