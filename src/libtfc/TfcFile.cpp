@@ -20,7 +20,7 @@
 #include <endian.h>
 #include <algorithm>
 #include "xxhash/xxhash.h"
-#include "TfcFile.h"
+#include "libtfc/TfcFile.h"
 
 using namespace Tfc;
 

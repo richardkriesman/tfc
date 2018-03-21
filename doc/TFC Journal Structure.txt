@@ -1,0 +1,24 @@
+Tagged File Journal (TFJ)
+File Structure
+-----------------
+
+root {
+
+    section header plaintext {
+        field    32    uint    magic_number := 0xE926629E
+        field    32    uint    file_version := 0x1
+        field    8     uint    state        := 0x0
+    }
+
+    section operation_list {
+        field    32    uint    operation_count
+
+        section operation [] {
+            field    8       uint      state     := 0x0
+            field    64      uint      start_pos
+            field    64      uint      size
+            field    size    stream    data
+        }
+    }
+
+}

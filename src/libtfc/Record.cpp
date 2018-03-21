@@ -15,8 +15,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "Record.h"
-#include "TfcFile.h"
+#include "libtfc/Record.h"
+#include "libtfc/TfcFile.h"
 
 using namespace Tfc;
 

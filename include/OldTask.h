@@ -23,31 +23,31 @@
 #include <condition_variable>
 #include <functional>
 
-enum TaskState {
-    PENDING,
-    SCHEDULED,
-    RUNNING,
-    COMPLETED,
-    FAILED
+enum OldTaskState {
+    OLD_PENDING,
+    OLD_SCHEDULED,
+    OLD_RUNNING,
+    OLD_COMPLETED,
+    OLD_FAILED
 };
 
-class Task {
+class OldTask {
 
 public:
-    explicit Task(const std::function<void*()> &handler);
-    ~Task();
+    explicit OldTask(const std::function<void*()> &handler);
+    ~OldTask();
 
     void* await();
     std::exception getException();
     void*& getResult();
-    TaskState getState();
+    OldTaskState getState();
     void schedule();
 
 
 private:
 
     // state
-    enum TaskState state;           // whether the task has been completed successfully
+    enum OldTaskState state;           // whether the task has been completed successfully
     std::mutex lock;                // mutex for controlling access to task state
     std::condition_variable event;  // condition variable for threads that want to wait for the task to complete
     void* result;                   // result of task
@@ -56,7 +56,7 @@ private:
     std::thread* thread;            // the worker thread that will process this task
     std::function<void*()> handler; // function pointer to handle the task
 
-    static void runner(Task* task); // runs on the worker thread and prepares to hand it off to the handler
+    static void runner(OldTask* task); // runs on the worker thread and prepares to hand it off to the handler
 
 };
 

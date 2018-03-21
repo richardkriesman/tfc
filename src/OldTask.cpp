@@ -15,20 +15,20 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "Task.h"
+#include "OldTask.h"
 
-Task::Task(const std::function<void*()> &handler) {
+OldTask::OldTask(const std::function<void*()> &handler) {
     std::lock_guard<std::mutex> lock(this->lock); // acquire state lock
 
     // initialize state
-    this->state = TaskState::PENDING;
+    this->state = OldTaskState::OLD_PENDING;
     this->result = nullptr;
 
     // set the handler
     this->handler = handler;
 }
 
-Task::~Task() {
+OldTask::~OldTask() {
     delete this->thread;
 }
 
@@ -38,7 +38,7 @@ Task::~Task() {
  *
  * @return The result of the Task.
  */
-void* Task::await() {
+void* OldTask::await() {
 
     // acquire the state lock
     std::unique_lock<std::mutex> lock(this->lock);
@@ -47,10 +47,10 @@ void* Task::await() {
     this->event.wait(lock);
 
     // check the task state
-    TaskState state = this->state;
+    OldTaskState state = this->state;
     void* result = this->result;
     lock.unlock();
-    if(state == TaskState::FAILED)
+    if(state == OldTaskState::OLD_FAILED)
         throw this->getException();
 
     return result;
@@ -59,7 +59,7 @@ void* Task::await() {
 /**
  * Returns the exception raised that caused the Task to fail.
  */
-std::exception Task::getException() {
+std::exception OldTask::getException() {
     auto* exPtr = static_cast<std::exception*>(this->result);
     std::exception ex = *exPtr;
     delete exPtr;
@@ -69,14 +69,14 @@ std::exception Task::getException() {
 /**
  * Returns the result produced by the Task.
  */
-void*& Task::getResult() { // turns out you need to return it by ref, otherwise this returns nullptr
+void*& OldTask::getResult() { // turns out you need to return it by ref, otherwise this returns nullptr
     return this->result;
 }
 
 /**
  * Returns the current state of the Task.
  */
-TaskState Task::getState() {
+OldTaskState OldTask::getState() {
     std::lock_guard<std::mutex> lock(this->lock);
     return this->state;
 }
@@ -87,13 +87,13 @@ TaskState Task::getState() {
  * Tasks are one-off operations. If this function is called after the Task has already been scheduled, an exception
  * will be thrown.
  */
-void Task::schedule() {
+void OldTask::schedule() {
     std::lock_guard<std::mutex> lock(this->lock); // acquire state lock
-    if(this->state != TaskState::PENDING)
+    if(this->state != OldTaskState::OLD_PENDING)
         throw "Task has already been scheduled";
 
     // update the task state
-    this->state = TaskState::SCHEDULED;
+    this->state = OldTaskState::OLD_SCHEDULED;
 
     // create a new thread
     this->thread = new std::thread(runner, this);
@@ -104,13 +104,13 @@ void Task::schedule() {
  * Runs on the worker thread, setting state and preparing to hand off control to the handler, then updates state and
  * notifies awaiting threads after the handler ends.
  */
-void Task::runner(Task* task) {
+void OldTask::runner(OldTask* task) {
 
     // acquire the state lock
     std::unique_lock<std::mutex> lock(task->lock);
 
     // set the task as in progress
-    task->state = TaskState::RUNNING;
+    task->state = OldTaskState::OLD_RUNNING;
     lock.unlock();
 
     // hand off task to the handler
@@ -119,11 +119,11 @@ void Task::runner(Task* task) {
 
         // handler ended successfully, update state and result
         lock.lock();
-        task->state = TaskState::COMPLETED;
+        task->state = OldTaskState::OLD_COMPLETED;
         task->result = result;
     } catch (std::exception &ex) { // exception was thrown, update state
         lock.lock();
-        task->state = TaskState::FAILED;
+        task->state = OldTaskState::OLD_FAILED;
 
         // set exception as result
         auto* exPtr = new std::exception();

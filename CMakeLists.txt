@@ -11,16 +11,19 @@ set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
 # sources
-set(HEADERS include/TfcFile.h include/TfcFileException.h include/Record.h include/TagTable.h include/BlobTable.h
-        include/Terminal.h include/Task.h)
-set(SOURCES src/main.cpp src/TfcFile.cpp src/TfcFileException.cpp src/Record.cpp src/TagTable.cpp src/BlobTable.cpp
-        src/Task.cpp include/License.h)
+set(SOURCES src/main.cpp src/libtfc/TfcFile.cpp src/libtfc/TfcFileException.cpp src/libtfc/Record.cpp
+        src/libtfc/TagTable.cpp src/libtfc/BlobTable.cpp src/OldTask.cpp src/libtfc/Journal.cpp src/tasker/Looper.cpp
+        src/tasker/TaskHandle.cpp src/tasker/TaskException.cpp
+        src/tasker/Task.cpp include/Tasker.h include/libtfc/TfcFile.h
+        include/libtfc/TfcFileException.h include/libtfc/Record.h include/libtfc/TagTable.h
+        include/libtfc/BlobTable.h include/Terminal.h include/OldTask.h include/License.h include/libtfc/Journal.h
+        include/Tasker.h src/tasker/Event.cpp)
 
 # xxhash
 add_subdirectory(lib/xxhash/cmake_unofficial)
 
 # primary build target
-add_executable(tfc ${HEADERS} ${SOURCES})
+add_executable(tfc ${SOURCES})
 target_link_libraries(tfc PRIVATE xxhash)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)

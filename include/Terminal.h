@@ -57,6 +57,7 @@ namespace Terminal {
     public:
         static constexpr const auto CHECKMARK = "\u2713";
         static constexpr const auto CROSSMARK = "\u274C";
+        static constexpr const auto DOT       = "\u002E";
     };
 }
 

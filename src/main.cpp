@@ -20,16 +20,19 @@
 #include <sstream>
 #include <unistd.h>
 #include <algorithm>
-#include "TfcFile.h"
+#include <OldTask.h>
+#include <cmath>
+
+#include "Tasker.h"
+#include "libtfc/TfcFile.h"
 #include "Terminal.h"
-#include "Task.h"
 #include "License.h"
 
 /**
  * Forward declarations
  */
 void about();
-void await(Task &task, const std::string &message);
+void await(Tasker::Task* task, const std::string &message);
 void help();
 std::string join(const std::vector<std::string> &strings, const std::string &delim);
 void license();
@@ -80,6 +83,10 @@ int main(int argc, char** argv) {
         std::cerr << "tfc: " << ex.what() << "\n";
         return 1;
     }
+
+    // create an event handler
+    Tasker::Looper looper;
+    looper.start();
 
     // if non-interactive mode, build a list of commands to be parsed
     std::vector<std::string> commands;
@@ -227,24 +234,25 @@ int main(int argc, char** argv) {
                 std::string name = path[path.size() - 1];
 
                 // stash the file
-                Task task([&file, &name, &args]() -> void* {
+                auto* stashTask = new Tasker::Task([&file, &name, &args](Tasker::TaskHandle* handle) -> void* {
                     auto* nonce = new uint32_t();
-                    *nonce = stash(file, name, args[1]);
+                    *nonce = stash(file, name, args[0]);
 
                     return static_cast<void*>(nonce);
                 });
 
-                // wait for the task to complete
-                task.schedule();
-                await(task, "Stashing " + name);
-                if (task.getState() == TaskState::FAILED)
-                    throw task.getException();
+                // show animation while the file is stashed
+                looper.run(stashTask);
+                await(stashTask, "Stashing " + name);
+                if (stashTask->getState() == Tasker::TaskState::FAILED)
+                    throw stashTask->getException();
 
                 // extract the nonce
-                auto* nonce = static_cast<uint32_t*>(task.getResult());
+                auto* nonce = static_cast<uint32_t*>(stashTask->getResult());
 
                 std::cout << status(true) << " Stashed " << name << " with ID " << *nonce << "\n";
                 delete nonce;
+                delete stashTask;
                 continue;
             }
 
@@ -255,7 +263,7 @@ int main(int argc, char** argv) {
                     throw Tfc::TfcFileException("File IDs cannot be negative");
 
                 // unstash the file
-                Task task([&file, nonce, &args]() -> void* {
+                Tasker::Task* task = new Tasker::Task([&file, nonce, &args](Tasker::TaskHandle* handle) -> void* {
                     auto* name = new std::string();
 
                     if(args.size() == 2) { // use original filename
@@ -270,13 +278,13 @@ int main(int argc, char** argv) {
                 });
 
                 // wait for the task to complete
-                task.schedule();
+                looper.run(task);
                 await(task, "Unstashing file");
-                if (task.getState() == TaskState::FAILED)
-                    throw task.getException();
+                if (task->getState() == Tasker::TaskState::FAILED)
+                    throw task->getException();
 
                 // extract the name
-                auto* name = static_cast<std::string*>(task.getResult());
+                auto* name = static_cast<std::string*>(task->getResult());
 
                 // output success message
                 std::cout << status(true) << " Unstashed " << nonce << " into " << *name << "\n";
@@ -361,7 +369,7 @@ void about() {
  * @param task The task to await.
  * @param message A message to display to the user explaining the operation.
  */
-void await(Task &task, const std::string &message) {
+void await(Tasker::Task* task, const std::string &message) {
     char states[] = { '-', '\\', '|', '/' }; // animation state
     int i = 0; // current animation state
 
@@ -370,8 +378,8 @@ void await(Task &task, const std::string &message) {
               << Terminal::Decorations::RESET << "] " << message;
 
     // animate spinner until task is done
-    TaskState state = task.getState();
-    while(state != TaskState::COMPLETED && state != TaskState::FAILED) {
+    Tasker::TaskState state = task->getState();
+    while(state != Tasker::TaskState::COMPLETED && state != Tasker::TaskState::FAILED) {
 
         // update animation state
         std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << Terminal::Cursor::forward(1)
@@ -386,7 +394,7 @@ void await(Task &task, const std::string &message) {
 
         // wait a little bit before trying again
         usleep(75000);
-        state = task.getState();
+        state = task->getState();
 
     }
 
