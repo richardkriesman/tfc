@@ -128,6 +128,7 @@ void Looper::startInForeground() {
 void Looper::stop() {
     std::lock_guard<std::mutex> lock(this->mutex);
     this->shouldStop = true;
+    this->scheduled.raise();
 }
 
 /**

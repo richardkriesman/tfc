@@ -20,13 +20,14 @@
 #include <sstream>
 #include <unistd.h>
 #include <algorithm>
-#include <OldTask.h>
 #include <cmath>
 
 #include "Tasker.h"
 #include "libtfc/TfcFile.h"
 #include "Terminal.h"
 #include "License.h"
+
+#define VERSION "0.0.1"
 
 /**
  * Forward declarations

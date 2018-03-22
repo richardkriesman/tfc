@@ -6,17 +6,17 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m64 -pthread")
 
 # output options
-set(CMAKE_BINARY_DIR ${PROJECT_SOURCE_DIR}/bin)
+set(CMAKE_BINARY_DIR ${PROJECT_SOURCE_DIR}/bin/linux)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 
 # sources
 set(SOURCES src/main.cpp src/libtfc/TfcFile.cpp src/libtfc/TfcFileException.cpp src/libtfc/Record.cpp
-        src/libtfc/TagTable.cpp src/libtfc/BlobTable.cpp src/OldTask.cpp src/libtfc/Journal.cpp src/tasker/Looper.cpp
+        src/libtfc/TagTable.cpp src/libtfc/BlobTable.cpp src/libtfc/Journal.cpp src/tasker/Looper.cpp
         src/tasker/TaskHandle.cpp src/tasker/TaskException.cpp
         src/tasker/Task.cpp include/Tasker.h include/libtfc/TfcFile.h
         include/libtfc/TfcFileException.h include/libtfc/Record.h include/libtfc/TagTable.h
-        include/libtfc/BlobTable.h include/Terminal.h include/OldTask.h include/License.h include/libtfc/Journal.h
+        include/libtfc/BlobTable.h include/Terminal.h include/License.h include/libtfc/Journal.h
         include/Tasker.h src/tasker/Event.cpp)
 
 # xxhash
