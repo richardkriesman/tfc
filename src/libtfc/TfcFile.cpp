@@ -17,8 +17,8 @@
  */
 #include <cstring>
 #include <chrono>
-#include <endian.h>
 #include <algorithm>
+#include "endian.h"
 #include "xxhash/xxhash.h"
 #include "libtfc/TfcFile.h"
 
@@ -152,7 +152,7 @@ void TfcFile::analyze() {
                 // check file version
                 version = this->readUInt32();
                 if(version > FILE_VERSION)
-                    throw TfcFileException("Container version mismatch. Must be <= " + FILE_VERSION);
+                    throw TfcFileException("Container version mismatch. Must be <= " + std::to_string(FILE_VERSION));
 
                 // check if file is encrypted (DEK will be all 0s)
                 char dek[32];
@@ -531,7 +531,7 @@ uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
         lastBlockNextPos = this->stream.tellg();
 
         // zero out next pos
-        char nextPosBuf[BLOCK_NEXT_SIZE] = {};
+        char nextPosBuf[8] = {};
         this->stream.write(nextPosBuf, BLOCK_NEXT_SIZE);
 
         // subtract bytes we just wrote from remaining bytes

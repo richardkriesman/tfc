@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
     // handle commands
     std::string input;
     int currentCommand = 0; // current command index when running in non-interactive mode
-    while(input != "exit" && isInteractive || currentCommand < commands.size()) {
+    while((input != "exit" && isInteractive) || currentCommand < commands.size()) {
 
         // print prompt
         if (file->isUnlocked() && file->doesExist())

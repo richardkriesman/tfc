@@ -9,6 +9,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -m64 -pthread")
 set(CMAKE_BINARY_DIR ${PROJECT_SOURCE_DIR}/bin/linux)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_BINARY_DIR})
 set(LIBRARY_OUTPUT_PATH ${CMAKE_BINARY_DIR})
+set(CMAKE_MACOSX_RPATH 1)
 
 # sources
 set(SOURCES src/main.cpp src/libtfc/TfcFile.cpp src/libtfc/TfcFileException.cpp src/libtfc/Record.cpp
@@ -17,7 +18,7 @@ set(SOURCES src/main.cpp src/libtfc/TfcFile.cpp src/libtfc/TfcFileException.cpp 
         src/tasker/Task.cpp include/Tasker.h include/libtfc/TfcFile.h
         include/libtfc/TfcFileException.h include/libtfc/Record.h include/libtfc/TagTable.h
         include/libtfc/BlobTable.h include/Terminal.h include/License.h include/libtfc/Journal.h
-        include/Tasker.h src/tasker/Event.cpp)
+        include/Tasker.h src/tasker/Event.cpp include/endian.h)
 
 # xxhash
 add_subdirectory(lib/xxhash/cmake_unofficial)

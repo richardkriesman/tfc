@@ -21,6 +21,7 @@
 #include <map>
 #include <cstring>
 #include <vector>
+#include <string>
 
 namespace Tfc {
 
