@@ -38,7 +38,7 @@ namespace Tasker {
         PENDING,    // task has not been attached to a tasker yet
         SCHEDULED,  // task has been scheduled for execution, but not yet started
         RUNNING,    // task is running on the tasker
-        SUSPENDED,  // task has been resumed because it yielded or is awaiting another task
+        SUSPENDED,  // task has been suspended because it yielded or is awaiting another task
         COMPLETED,  // task completed successfully
         FAILED      // task threw an exception
     };

@@ -86,7 +86,7 @@ void TaskHandle::waitForContextChange() {
  */
 void TaskHandle::yield() {
 
-    // update state to resumed
+    // update state to suspended
     this->task->setState(TaskState::SUSPENDED);
 
     // notify the tasker of the context change

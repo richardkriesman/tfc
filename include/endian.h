@@ -1,5 +1,5 @@
 /*
- * This is a compatibility shim for macOS.
+ * This is a compatibility shim for macOS for the GNU endian.h file.
  *
  * Thanks to dendisuhubdy on GitHub for this!
  */

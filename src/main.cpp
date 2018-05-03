@@ -379,7 +379,7 @@ void about() {
  * @param message A message to display to the user explaining the operation.
  */
 void await(Tasker::Task* task, const std::string &message) {
-    char states[] = { '-', '\\', '|', '/' }; // animation state
+    const char states[] = { '-', '\\', '|', '/' }; // animation state
     int i = 0; // current animation state
 
     // print message
