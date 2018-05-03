@@ -23,9 +23,18 @@ set(SOURCES src/main.cpp src/libtfc/TfcFile.cpp src/libtfc/TfcFileException.cpp 
 # xxhash
 add_subdirectory(lib/xxhash/cmake_unofficial)
 
+# openssl
+find_package(OpenSSL REQUIRED)
+if (OPENSSL_FOUND)
+    message(STATUS "Located OpenSSL at ${OPENSSL_INCLUDE_DIR}")
+else()
+    message(FATAL_ERROR "Failed to location OpenSSL")
+endif()
+include_directories(${OPENSSL_INCLUDE_DIR})
+
 # primary build target
 add_executable(tfc ${SOURCES})
-target_link_libraries(tfc PRIVATE xxhash)
+target_link_libraries(tfc PRIVATE xxhash OpenSSL::Crypto)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
 target_compile_definitions(tfc PRIVATE VERSION=\"${PROJECT_VERSION}\")
