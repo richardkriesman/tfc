@@ -31,6 +31,11 @@ BlobRecord* BlobTable::get(uint32_t nonce) {
     return row->second;
 }
 
+void BlobTable::remove(BlobRecord *record) {
+    this->map.erase(record->getNonce());
+    this->_size--;
+}
+
 uint32_t BlobTable::size() {
     return this->_size;
 }
@@ -42,4 +47,3 @@ std::map<uint32_t, BlobRecord *>::iterator BlobTable::begin() {
 std::map<uint32_t, BlobRecord *>::iterator BlobTable::end() {
     return this->map.end();
 }
-

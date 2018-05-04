@@ -26,13 +26,11 @@ namespace Tfc {
 
     public:
         void add(BlobRecord *row);
-
         BlobRecord *get(uint32_t nonce);
-
+        void remove(BlobRecord* record);
         uint32_t size();
 
         std::map<uint32_t, BlobRecord *>::iterator begin();
-
         std::map<uint32_t, BlobRecord *>::iterator end();
 
     private:

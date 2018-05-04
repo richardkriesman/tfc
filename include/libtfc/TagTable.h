@@ -27,10 +27,11 @@ namespace Tfc {
     class TagTable {
 
     public:
-        uint32_t size();
         void add(TagRecord* row);
         TagRecord* get(uint32_t nonce);
         TagRecord* get(std::string name);
+        void remove(TagRecord* record);
+        uint32_t size();
 
         std::map<std::string, TagRecord*>::iterator begin();
         std::map<std::string, TagRecord*>::iterator end();

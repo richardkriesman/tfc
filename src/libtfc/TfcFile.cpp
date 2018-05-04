@@ -28,6 +28,12 @@
 
 using namespace Tfc;
 
+/*
+ * ---------------
+ * PUBLIC METHODS
+ * ---------------
+ */
+
 /**
  * Creates a new representation of a Tagged File Container (TFC) file, which can be switched between read and write
  * modes.
@@ -41,6 +47,462 @@ TfcFile::TfcFile(const std::string &filename){
     // determine if the file exists
     std::ifstream stream(this->filename);
     this->exists = stream.good();
+}
+
+/**
+ * EDIT operation. Adds a blob to the container.
+ *
+ * @param name The display name of the blob.
+ * @param bytes Pointer to the raw bytes of the blob.
+ * @param size The size of the blob in bytes.
+ * @return The container index that was assigned to the blob.
+ */
+uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
+    if(this->op != TfcFileMode::EDIT) // file must be in EDIT mode
+        throw TfcFileException("File not in EDIT mode");
+
+    /*
+     * Write blob bytes to free blocks
+     */
+    std::streamsize remainingSize = size;       // number of bytes still left to write
+    uint64_t bytePos = 0;                // where we are in the byte array
+    std::streampos firstBlockPos;        // position of first block in the block chain
+    std::streampos lastBlockNextPos = 0; // position of next pos in last block
+    std::streampos blockListDataStart = this->blockListPos // start of block list data section
+                                        + static_cast<std::streampos>(BLOCK_LIST_COUNT_SIZE);
+    std::streampos selectedBlock = 0;     // currently selected block
+    while(remainingSize > 0) { // we still have bytes to write
+        bool isFirstBlock = selectedBlock == 0; // first block always starts with selectedBlock == 0
+
+        // find a free block
+        this->jump(blockListDataStart); // jump to block list data section start
+        char freeBlockBuf[BLOCK_SIZE];  // buffer for storing current block
+        while(selectedBlock < blockCount) { // only check existing blocks, we can also make new ones
+
+            // read block into memory
+            this->stream.read(freeBlockBuf, BLOCK_SIZE); // read block data and next pos (should be 0 for free blocks)
+
+            // check if block is free
+            bool free = true;
+            for(char byte : freeBlockBuf) {
+                if(byte != 0x0) {
+                    free = false;
+                    break;
+                }
+            }
+            if(free) { // we found a free block
+                this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock); // move back to start of free block
+                break;
+            }
+
+            // move to next block
+            selectedBlock += 1;
+            this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock);
+
+        }
+
+        // if first block, record first block's pos
+        if(isFirstBlock)
+            firstBlockPos = this->stream.tellg();
+
+        // update block count if we're writing to a new block
+        bool isNewBlock = selectedBlock >= blockCount;
+        if(isNewBlock) {
+
+            // jump to block count
+            this->jump(this->blockListPos);
+
+            // write new block count
+            this->writeUInt32(++this->blockCount);
+
+            // jump back to beginning of new block
+            this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock);
+
+        }
+
+        // determine number of bytes we need to write in this block
+        std::streamsize blockDataSize;
+        if(remainingSize > BLOCK_DATA_SIZE)
+            blockDataSize = BLOCK_DATA_SIZE;
+        else
+            blockDataSize = remainingSize;
+
+        // write data to block
+        this->stream.write(bytes + bytePos, blockDataSize);
+        if(this->stream.fail())
+            throw TfcFileException("Failed to write blob data");
+        bytePos += blockDataSize;
+
+        // update next pos of last block
+        if(lastBlockNextPos != 0) { // last block existed
+
+            // jump back to last block's next pos
+            this->jump(lastBlockNextPos);
+
+            // write start pos of selected block
+            this->writeUInt64(static_cast<uint64_t>(blockListDataStart + BLOCK_SIZE * selectedBlock));
+
+        }
+
+        // go to end of selected block's data section (start of next pos)
+        this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock
+                   + static_cast<std::streampos>(BLOCK_DATA_SIZE));
+
+        // set this block's next pos so the next block will update it
+        lastBlockNextPos = this->stream.tellg();
+
+        // zero out next pos
+        char nextPosBuf[8] = {};
+        this->stream.write(nextPosBuf, BLOCK_NEXT_SIZE);
+
+        // subtract bytes we just wrote from remaining bytes
+        remainingSize -= blockDataSize;
+        selectedBlock += 1; // so next block we write starts after this block
+
+    }
+
+    /*
+     * Rewrite tag table
+     */
+
+    this->jump(static_cast<uint64_t>(blockListDataStart) + BLOCK_SIZE * this->blockCount); // go to end of block list
+    this->writeTagTable();
+
+    /*
+     * Rewrite blob table with new entry
+     */
+
+    // compute a hash of the data
+    uint64_t hash = this->hash(bytes, size);
+
+    // create new record in blob table
+    auto* record = new BlobRecord(this->blobTableNextNonce++, name, hash, firstBlockPos, size);
+    this->blobTable->add(record);
+
+    // rewrite the blob table
+    this->writeBlobTable();
+
+    return record->getNonce();
+}
+
+/**
+ * EDIT operation. Attaches a tag to a blob. If the tag does not exist, it will be created.
+ *
+ * @param nonce The nonce of the blob to which the tag will be attached.
+ * @param tag The string tag to be attached. Tags are case insensitive.
+ */
+void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
+    if(this->op != TfcFileMode::EDIT)
+        throw TfcFileException("File not in EDIT mode");
+
+    // convert tag to lower case
+    std::string tagLower = tag;
+    std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+
+    // get the blob from the blob table
+    BlobRecord* blobRow = this->blobTable->get(nonce);
+    if(blobRow == nullptr)
+        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+
+    // get the tag from the tag table, or make a new one if it doesn't exist
+    TagRecord* tagRow = this->tagTable->get(tagLower);
+    if(tagRow == nullptr) { // tag doesn't exist in table, add it
+
+        // add a new tag to the tag table
+        tagRow = new TagRecord(this->tagTableNextNonce++, tagLower);
+        this->tagTable->add(tagRow);
+
+        // write the tag table to disk
+        this->jump(this->tagTablePos);
+        this->writeTagTable();
+
+    } else { // tag already exists in tag table
+
+        // check if tag is already attached
+        for(auto _tag : *blobRow->getTags()) {
+            if(_tag == tagRow) // tag is already attached
+                throw TfcFileException("Tag is already attached to this blob");
+        }
+
+        // jump to blob table
+        this->jump(this->blobTablePos);
+
+    }
+
+    // link the blob and tag together
+    blobRow->addTag(tagRow);
+    tagRow->addBlob(blobRow);
+
+    // write the blob table to disk
+    this->writeBlobTable();
+}
+
+/**
+ * Deletes a blob with the specified nonce from the file. The file will be deleted by setting all bytes for the file's
+ * blocks to 0x0 and deleting the blob's entry in the blob table. The nonce will not be re-used.
+ *
+ * Note on security: Depending on the host filesystem (especially with journaled filesystems), the deleted blob's bytes
+ * may be backed up elsewhere. Additionally, only one pass is made. Therefore, you should not assume that the blob wil
+ * be unrecoverable. If storing sensitive data, the file should have encryption enabled to prevent the data from being
+ * read by unauthorized users.
+ *
+ * @param nonce The nonce of the blob that will be deleted.
+ */
+void TfcFile::deleteBlob(uint32_t nonce) {
+    if (this->op != TfcFileMode::EDIT)
+        throw TfcFileException("File not in EDIT mode");
+
+    // get the blob from the blob table
+    BlobRecord* blobRecord = this->blobTable->get(nonce);
+    if (blobRecord == nullptr)
+        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+
+    // move to blob's starting block
+    std::streampos startPos = blobRecord->getStart();
+    this->jump(startPos);
+
+    // overwrite the blob's data
+    uint64_t remainingSize = blobRecord->getSize();
+    while (remainingSize > 0) {
+
+        // zero out the block's data section
+        for (int i = 0; i < BLOCK_DATA_SIZE / 4; i++) // 4 bytes for a 32 bit int
+            this->writeUInt32(0x0);
+
+        // subtract bytes in block from bytes remaining
+        if (remainingSize <= BLOCK_DATA_SIZE)
+            remainingSize = 0;
+        else
+            remainingSize -= BLOCK_DATA_SIZE;
+
+        // read next position and zero it out
+        std::streampos nextPosStart = this->stream.tellg();
+        uint64_t nextPos = this->readUInt64();
+        this->jump(nextPosStart);
+        this->writeUInt64(0x0);
+
+        // jump to next block
+        if (nextPos != 0x0)
+            this->jump(nextPos);
+    }
+
+    // remove blob record from tag records
+    bool rewriteTagTable = false; // whether the tag table needs to be rewritten
+    for (TagRecord* tagRecord : *blobRecord->getTags()) {
+
+        // locate index of blob record in tag record
+        unsigned long i;
+        bool found = false;
+        for (i = 0; i < tagRecord->getBlobs()->size(); i++) {
+            if ((*tagRecord->getBlobs())[i] == blobRecord) {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            continue;
+
+        // delete the link from tag -> blob
+        tagRecord->getBlobs()->erase(tagRecord->getBlobs()->begin() + i);
+
+        // no more blobs left in tag, delete the tag
+        if (tagRecord->getBlobs()->empty()) {
+            this->tagTable->remove(tagRecord);
+            delete tagRecord;
+            rewriteTagTable = true;
+        }
+    }
+
+    // remove blob record from blob table
+    this->blobTable->remove(blobRecord);
+    delete blobRecord;
+
+    // rewrite tables
+    if (rewriteTagTable) {
+        this->jump(this->tagTablePos);
+        this->writeTagTable();
+    } else {
+        this->jump(this->blobTablePos);
+    }
+    this->writeBlobTable();
+}
+
+/**
+ * Whether the file exists in the filesystem.
+ */
+bool TfcFile::doesExist() {
+    return this->exists;
+}
+
+/**
+ * Returns the current operation mode of the file.
+ */
+TfcFileMode TfcFile::getMode() {
+    return this->op;
+}
+
+/**
+ * Writes out the structure of an empty container file. Overwrites all file data.
+ * Must be in CREATE mode.
+ *
+ * @throw TfcFileException The file is not in CREATE mode.
+ */
+void TfcFile::init() {
+    if(this->op != TfcFileMode::CREATE)
+        throw TfcFileException("File not in CREATE mode");
+    this->jump(0); // move cursor to beginning of file
+
+    // write header data
+    this->writeUInt32(MAGIC_NUMBER); // write magic number
+    this->writeUInt32(FILE_VERSION); // write file version
+
+    // write DEK as all 0s (since there's no encryption yet)
+    for(int i = 0; i < 8; i++) // 32 * 8 is 256, the size of the DEK
+        this->writeUInt32(0x0);
+
+    // write block list - just the count (which is 0) for now
+    this->writeUInt32(0);
+
+    // write tag table - for an empty container, this is the next nonce (1) and the count
+    this->writeUInt32(1);
+    this->writeUInt32(0);
+
+    // write blob table - for an empty container, this is the next nonce (1) and the blob count (0)
+    this->writeUInt32(1);
+    this->writeUInt32(0);
+
+    // flush the buffer
+    this->stream.flush();
+
+    // the file exists now, update state
+    this->exists = true;
+}
+
+/**
+ * READ operation. Given a vector of tag strings, a vector of BlobRecords are returned whose tags match all of the
+ * tag strings. This vector will be returned in a descending order of nonces.
+ *
+ * @param tags A vector of tags
+ * @return A vector of BlobRecords whose tags contain all of the tags in the tags parameter.
+ */
+std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &tags) {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    std::vector<BlobRecord*> result; // set of intersecting BlobRecords
+
+    // build a search set of TagRecords
+    std::vector<TagRecord*> searchSet;
+    for(const auto &tag : tags) {
+
+        // convert tag to lower case
+        std::string tagLower = tag;
+        std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+
+        // get tag record
+        TagRecord* record = this->tagTable->get(tagLower);
+        if(record == nullptr)
+            throw TfcFileException(tagLower + " is not a tag");
+        searchSet.push_back(record);
+
+    }
+
+    // sort the search set
+    std::sort(searchSet.begin(), searchSet.end(), TagRecord::asc);
+
+    // build a union set of blob records (a set of blobs that have at least one of the tags)
+    auto* unionSet = new std::vector<BlobRecord*>();
+    for(const auto &tagRecord : searchSet) { // for each tag in search set
+        std::vector<BlobRecord*> blobs = *tagRecord->getBlobs(); // vector of blobs with this tag
+        std::sort(blobs.begin(), blobs.end(), BlobRecord::asc);
+
+        // union blob with union set
+        auto* newUnionSet = new std::vector<BlobRecord*>(unionSet->size() + blobs.size()); // pointer to the new union set
+        std::vector<BlobRecord*>::iterator end;
+        end = std::set_union(unionSet->begin(), unionSet->end(), blobs.begin(), blobs.end(), newUnionSet->begin(),
+                             BlobRecord::asc);
+
+        // resize new union set
+        newUnionSet->resize(static_cast<unsigned long>(end - newUnionSet->begin()));
+
+        // swap in new union set
+        auto* oldUnionSet = unionSet;
+        unionSet = newUnionSet;
+        delete oldUnionSet;
+    }
+
+    // intersect each blob in the union set with the search set
+    for(const auto &blobRecord : *unionSet) {
+
+        // sort the blob record's tags
+        std::vector<TagRecord*> blobTags = *blobRecord->getTags();
+        std::sort(blobTags.begin(), blobTags.end(), TagRecord::asc);
+
+        // check if the search set's tags are in the blob record's tags
+        std::vector<TagRecord*> intersection(searchSet.size());
+        std::vector<TagRecord*>::iterator end;
+        end = std::set_intersection(searchSet.begin(), searchSet.end(), blobTags.begin(), blobTags.end(),
+                                    intersection.begin(), TagRecord::asc);
+
+        // resize the intersection set
+        intersection.resize(static_cast<unsigned long>(end - intersection.begin()));
+
+        // if tags match, add this record to the resultant set
+        if(intersection.size() == searchSet.size())
+            result.push_back(blobRecord);
+
+    }
+
+    delete unionSet;
+
+    return result;
+
+}
+
+/**
+ * Whether the file is encrypted.
+ */
+bool TfcFile::isEncrypted() {
+    return this->encrypted;
+}
+
+/**
+ * Whether the file has been unlocked. If there is no encryption on the file, this will be true.
+ */
+bool TfcFile::isUnlocked() {
+    return this->unlocked;
+}
+
+/**
+ * READ operation. Returns a list of blob table entries.
+ *
+ * @return A vector of pointers to the entries.
+ */
+std::vector<BlobRecord*> TfcFile::listBlobs() {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    std::vector<BlobRecord*> rows;
+    for (auto &iter : *this->blobTable)
+        rows.push_back(iter.second);
+
+    return rows;
+}
+
+/**
+ * READ operation. Returns a list of tag table entries.
+ *
+ * @return A vector of pointers to the entries.
+ */
+std::vector<TagRecord*> TfcFile::listTags() {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    std::vector<TagRecord*> rows;
+    for (auto &iter : *this->tagTable)
+        rows.push_back(iter.second);
+
+    return rows;
 }
 
 /**
@@ -104,24 +566,70 @@ void TfcFile::mode(TfcFileMode mode) {
 }
 
 /**
- * Returns the current operation mode of the file.
+ * READ operation. Reads a blob with the specified nonce.
+ *
+ * @param nonce The nonce of the blob to read.
+ * @return A TfcFileBlob struct containing the size and char* to the data. Null if the nonce does not exist.
  */
-TfcFileMode TfcFile::getMode() {
-    return this->op;
+TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
+    if(this->op != TfcFileMode::READ)
+        throw TfcFileException("File not in READ mode");
+
+    // get the blob's record
+    BlobRecord* record = this->blobTable->get(nonce);
+    if(record == nullptr)
+        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+
+    // create a new blob struct
+    auto* blob = new TfcFileBlob();
+    blob->record = record;
+
+    // jump to blob file
+    std::streampos startPos = record->getStart();
+    this->jump(startPos);
+
+    // allocate memory for storing the blob bytes
+    blob->data = new char[blob->record->getSize()];
+
+    // read bytes from blocks
+    uint64_t remainingSize = blob->record->getSize();
+    while(remainingSize > 0) {
+
+        // determine number of bytes to read from block
+        uint64_t blockByteCount;
+        if(remainingSize > BLOCK_DATA_SIZE)
+            blockByteCount = BLOCK_DATA_SIZE;
+        else
+            blockByteCount = remainingSize;
+
+        // read bytes into the buffer
+        this->stream.read(blob->data + (blob->record->getSize() - remainingSize), blockByteCount);
+        if(this->stream.fail())
+            throw TfcFileException("Failed to read block");
+
+        // subtract bytes we just read from remaining
+        remainingSize -= blockByteCount;
+
+        // jump to position of next block
+        this->jump(startPos + static_cast<std::streampos>(BLOCK_DATA_SIZE));
+        startPos = this->readUInt64();
+        this->jump(startPos);
+
+    }
+
+    return blob;
+
 }
 
-/**
- * Closes the file stream, resets all flags, and changes the operation mode to CLOSED.
+/*
+ * ----------------
+ * PRIVATE METHODS
+ * ----------------
  */
-void TfcFile::reset() {
-    this->stream.close();
-    this->stream.clear();
-    this->op = TfcFileMode::CLOSED;
-}
 
 /**
- * READ mode operation. Analyzes the structure of the file. Finds the starting position of file sections and builds a
- * blob table for blobs.
+ * READ mode operation. Analyzes the structure of the file. Finds the starting position of file sections, builds a
+ * blob table for blobs, and builds a tag table for tags.
  */
 void TfcFile::analyze() {
     if(this->op != TfcFileMode::READ)
@@ -280,535 +788,6 @@ void TfcFile::analyze() {
 }
 
 /**
- * Writes out the structure of an empty container file. Overwrites all file data.
- * Must be in CREATE mode.
- *
- * @throw TfcFileException The file is not in CREATE mode.
- */
-void TfcFile::init() {
-    if(this->op != TfcFileMode::CREATE)
-        throw TfcFileException("File not in CREATE mode");
-    this->jump(0); // move cursor to beginning of file
-
-    // write header data
-    this->writeUInt32(MAGIC_NUMBER); // write magic number
-    this->writeUInt32(FILE_VERSION); // write file version
-
-    // write DEK as all 0s (since there's no encryption yet)
-    for(int i = 0; i < 8; i++) // 32 * 8 is 256, the size of the DEK
-        this->writeUInt32(0x0);
-
-    // write block list - just the count (which is 0) for now
-    this->writeUInt32(0);
-
-    // write tag table - for an empty container, this is the next nonce (1) and the count
-    this->writeUInt32(1);
-    this->writeUInt32(0);
-
-    // write blob table - for an empty container, this is the next nonce (1) and the blob count (0)
-    this->writeUInt32(1);
-    this->writeUInt32(0);
-
-    // flush the buffer
-    this->stream.flush();
-
-    // the file exists now, update state
-    this->exists = true;
-}
-
-/**
- * Reads a uint32_t from the file and moves the cursor forward by 4 bytes.
- *
- * @return The uint32_t value from the file.
- */
-uint32_t TfcFile::readUInt32() {
-    uint32_t value;
-    this->stream.read(reinterpret_cast<char*>(&value), sizeof(uint32_t));
-    if(this->stream.fail())
-        throw TfcFileException("Failed to read uint32");
-    return ntohl(value);
-}
-
-/**
- * Reads a uint64_t from the file and moves the cursor forward by 4 bytes.
- *
- * @return The uint64_t value from the file.
- */
-uint64_t TfcFile::readUInt64() {
-    uint64_t value;
-    this->stream.read(reinterpret_cast<char*>(&value), sizeof(uint64_t));
-    if(this->stream.fail())
-        throw TfcFileException("Failed to read uint64");
-    return be64toh(value);
-}
-
-/**
- * Reads a string at the specified position. This function will first read a uint32_t to obtain the length of the
- * string.
- *
- * @return A string at the cursor's current position.
- */
-std::string TfcFile::readString() {
-    uint32_t length = this->readUInt32(); // length of the string
-
-    // read into buffer
-    char buf[length + 1]; // buffer for storing the string + null terminator
-    this->stream.read(buf, length);
-    if(this->stream.fail())
-        throw TfcFileException("Failed to read string");
-
-    // add null terminator at end of buffer
-    buf[length] = '\0';
-
-    // convert to string
-    return std::string(buf);
-}
-
-/**
- * Writes a uint32_t to the file at the current position and moves the cursor forward by 4 bytes.
- *
- * @param value The uint32_t value to write.
- */
-void TfcFile::writeUInt32(const uint32_t &value) {
-    uint32_t networkByteValue = htonl(value);
-    this->stream.write((char*) &networkByteValue, sizeof(uint32_t));
-    if(this->stream.fail())
-        throw TfcFileException("Failed to write uint32");
-}
-
-/**
- * Writes a uint64_t to the file at the current position and moves the cursor forward by 8 bytes.
- *
- * @param value The uint64_t value to write.
- */
-void TfcFile::writeUInt64(const uint64_t &value) {
-    uint64_t networkByteValue = htobe64(value);
-    this->stream.write((char*) &networkByteValue, sizeof(uint64_t));
-    if(this->stream.fail())
-        throw TfcFileException("Failed to write uint64");
-}
-
-/**
- * Writes a string to the file at the current position and moves the cursor forward by a number of bytes equal to the
- * length of the string.
- *
- * @param value The string to write.
- */
-void TfcFile::writeString(const std::string &value) {
-
-    // write string length
-    this->writeUInt32(static_cast<uint32_t>(value.size()));
-
-    // write string bytes
-    this->stream.write(value.c_str(), value.size());
-    if(this->stream.fail())
-        throw TfcFileException("Failed to write string");
-}
-
-/**
- * Moves the cursor forward by a number of bytes.
- *
- * @param length The number of bytes to move forward by.
- */
-void TfcFile::next(std::streampos length) {
-    this->stream.seekg(length, this->stream.cur);
-}
-
-/**
- * Moves the cursor to a number of bytes from the beginning of the file.
- *
- * @param length The number of bytes from the beginning of the file to jump to.
- */
-void TfcFile::jump(std::streampos length) {
-    this->stream.seekg(length, this->stream.beg);
-}
-
-/**
- * Moves the cursor to a number of bytes from the end of the file.
- *
- * @param length The number of bytes from the end of the file to jump to.
- */
-void TfcFile::jumpBack(std::streampos length) {
-    this->stream.seekg(length, this->stream.end);
-}
-
-/**
- * EDIT operation. Adds a blob to the container.
- *
- * @param name The display name of the blob.
- * @param bytes Pointer to the raw bytes of the blob.
- * @param size The size of the blob in bytes.
- * @return The container index that was assigned to the blob.
- */
-uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
-    if(this->op != TfcFileMode::EDIT) // file must be in EDIT mode
-        throw TfcFileException("File not in EDIT mode");
-
-    /*
-     * Write blob bytes to free blocks
-     */
-    std::streamsize remainingSize = size;       // number of bytes still left to write
-    uint64_t bytePos = 0;                // where we are in the byte array
-    std::streampos firstBlockPos;        // position of first block in the block chain
-    std::streampos lastBlockNextPos = 0; // position of next pos in last block
-    std::streampos blockListDataStart = this->blockListPos // start of block list data section
-                                        + static_cast<std::streampos>(BLOCK_LIST_COUNT_SIZE);
-    std::streampos selectedBlock = 0;     // currently selected block
-    while(remainingSize > 0) { // we still have bytes to write
-        bool isFirstBlock = selectedBlock == 0; // first block always starts with selectedBlock == 0
-
-        // find a free block
-        this->jump(blockListDataStart); // jump to block list data section start
-        char freeBlockBuf[BLOCK_SIZE];  // buffer for storing current block
-        while(selectedBlock < blockCount) { // only check existing blocks, we can also make new ones
-
-            // read block into memory
-            this->stream.read(freeBlockBuf, BLOCK_SIZE); // read block data and next pos (should be 0 for free blocks)
-
-            // check if block is free
-            bool free = true;
-            for(char byte : freeBlockBuf) {
-                if(byte != 0x0) {
-                    free = false;
-                    break;
-                }
-            }
-            if(free) { // we found a free block
-                this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock); // move back to start of free block
-                break;
-            }
-
-            // move to next block
-            selectedBlock += 1;
-            this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock);
-
-        }
-
-        // if first block, record first block's pos
-        if(isFirstBlock)
-            firstBlockPos = this->stream.tellg();
-
-        // update block count if we're writing to a new block
-        bool isNewBlock = selectedBlock >= blockCount;
-        if(isNewBlock) {
-
-            // jump to block count
-            this->jump(this->blockListPos);
-
-            // write new block count
-            this->writeUInt32(++this->blockCount);
-
-            // jump back to beginning of new block
-            this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock);
-
-        }
-
-        // determine number of bytes we need to write in this block
-        std::streamsize blockDataSize;
-        if(remainingSize > BLOCK_DATA_SIZE)
-            blockDataSize = BLOCK_DATA_SIZE;
-        else
-            blockDataSize = remainingSize;
-
-        // write data to block
-        this->stream.write(bytes + bytePos, blockDataSize);
-        if(this->stream.fail())
-            throw TfcFileException("Failed to write blob data");
-        bytePos += blockDataSize;
-
-        // update next pos of last block
-        if(lastBlockNextPos != 0) { // last block existed
-
-            // jump back to last block's next pos
-            this->jump(lastBlockNextPos);
-
-            // write start pos of selected block
-            this->writeUInt64(static_cast<uint64_t>(blockListDataStart + BLOCK_SIZE * selectedBlock));
-
-        }
-
-        // go to end of selected block's data section (start of next pos)
-        this->jump(blockListDataStart + BLOCK_SIZE * selectedBlock
-            + static_cast<std::streampos>(BLOCK_DATA_SIZE));
-
-        // set this block's next pos so the next block will update it
-        lastBlockNextPos = this->stream.tellg();
-
-        // zero out next pos
-        char nextPosBuf[8] = {};
-        this->stream.write(nextPosBuf, BLOCK_NEXT_SIZE);
-
-        // subtract bytes we just wrote from remaining bytes
-        remainingSize -= blockDataSize;
-        selectedBlock += 1; // so next block we write starts after this block
-
-    }
-
-    /*
-     * Rewrite tag table
-     */
-    this->writeTagTable();
-
-    /*
-     * Rewrite blob table with new entry
-     */
-
-    // compute a hash of the data
-    uint64_t hash = this->hash(bytes, size);
-
-    // create new record in blob table
-    auto* record = new BlobRecord(this->blobTableNextNonce++, name, hash, firstBlockPos, size);
-    this->blobTable->add(record);
-
-    // rewrite the blob table
-    this->writeBlobTable();
-
-    return record->getNonce();
-}
-
-/**
- * EDIT operation. Attaches a tag to a blob. If the tag does not exist, it will be created.
- *
- * @param nonce The nonce of the blob to whom the tag will be attached.
- * @param tag The string tag to be attached. Tags are case insensitive.
- */
-void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
-    if(this->op != TfcFileMode::EDIT)
-        throw TfcFileException("File not in EDIT mode");
-
-    // convert tag to lower case
-    std::string tagLower = tag;
-    std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
-
-    // get the blob from the blob table
-    BlobRecord* blobRow = this->blobTable->get(nonce);
-    if(blobRow == nullptr)
-        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
-
-    // get the tag from the tag table, or make a new one if it doesn't exist
-    TagRecord* tagRow = this->tagTable->get(tagLower);
-    if(tagRow == nullptr) { // tag doesn't exist in table, add it
-
-        // add a new tag to the tag table
-        tagRow = new TagRecord(this->tagTableNextNonce++, tagLower);
-        this->tagTable->add(tagRow);
-
-        // write the tag table to disk
-        this->jump(this->tagTablePos);
-        this->writeTagTable();
-
-    } else { // tag already exists in tag table
-
-        // check if tag is already attached
-        for(auto _tag : blobRow->getTags()) {
-            if(_tag == tagRow) // tag is already attached
-                throw TfcFileException("Tag is already attached to this blob");
-        }
-
-        // jump to blob table
-        this->jump(this->blobTablePos);
-
-    }
-
-    // link the blob and tag together
-    blobRow->addTag(tagRow);
-    tagRow->addBlob(blobRow);
-
-    // write the blob table to disk
-    this->writeBlobTable();
-}
-
-/**
- * READ operation. Reads a blob with the specified nonce.
- *
- * @param nonce The nonce of the blob to read.
- * @return A TfcFileBlob struct containing the size and char* to the data. Null if the nonce does not exist.
- */
-TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
-
-    // get the blob's record
-    BlobRecord* record = this->blobTable->get(nonce);
-    if(record == nullptr)
-        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
-
-    // create a new blob struct
-    auto* blob = new TfcFileBlob();
-    blob->record = record;
-
-    // jump to blob file
-    std::streampos startPos = record->getStart();
-    this->jump(startPos);
-
-    // allocate memory for storing the blob bytes
-    blob->data = new char[blob->record->getSize()];
-
-    // read bytes from blocks
-    uint64_t remainingSize = blob->record->getSize();
-    while(remainingSize > 0) {
-
-        // determine number of bytes to read from block
-        uint64_t blockByteCount;
-        if(remainingSize > BLOCK_DATA_SIZE)
-            blockByteCount = BLOCK_DATA_SIZE;
-        else
-            blockByteCount = remainingSize;
-
-        // read bytes into the buffer
-        this->stream.read(blob->data + (blob->record->getSize() - remainingSize), blockByteCount);
-        if(this->stream.fail())
-            throw TfcFileException("Failed to read block");
-
-        // subtract bytes we just read from remaining
-        remainingSize -= blockByteCount;
-
-        // jump to position of next block
-        this->jump(startPos + static_cast<std::streampos>(BLOCK_DATA_SIZE));
-        startPos = this->readUInt64();
-        this->jump(startPos);
-
-    }
-
-    return blob;
-
-}
-
-/**
- * READ operation. Returns a list of blob table entries.
- *
- * @return A vector of pointers to the entries.
- */
-std::vector<BlobRecord*> TfcFile::listBlobs() {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
-
-    std::vector<BlobRecord*> rows;
-    for (auto &iter : *this->blobTable)
-        rows.push_back(iter.second);
-
-    return rows;
-}
-
-/**
- * READ operation. Returns a list of tag table entries.
- *
- * @return A vector of pointers to the entries.
- */
-std::vector<TagRecord*> TfcFile::listTags() {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
-
-    std::vector<TagRecord*> rows;
-    for (auto &iter : *this->tagTable)
-        rows.push_back(iter.second);
-
-    return rows;
-}
-
-/**
- * READ operation. Given a vector of tag strings, a vector of BlobRecords are returned whose tags match all of the
- * tag strings. This vector will be returned in a descending order of nonces.
- *
- * @param tags A vector of tags
- * @return A vector of BlobRecords whose tags contain all of the tags in the tags parameter.
- */
-std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &tags) {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
-
-    std::vector<BlobRecord*> result; // set of intersecting BlobRecords
-
-    // build a search set of TagRecords
-    std::vector<TagRecord*> searchSet;
-    for(const auto &tag : tags) {
-
-        // convert tag to lower case
-        std::string tagLower = tag;
-        std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
-
-        // get tag record
-        TagRecord* record = this->tagTable->get(tagLower);
-        if(record == nullptr)
-            throw TfcFileException(tagLower + " is not a tag");
-        searchSet.push_back(record);
-
-    }
-
-    // sort the search set
-    std::sort(searchSet.begin(), searchSet.end(), TagRecord::asc);
-
-    // build a union set of blob records (a set of blobs that have at least one of the tags)
-    auto* unionSet = new std::vector<BlobRecord*>();
-    for(const auto &tagRecord : searchSet) { // for each tag in search set
-        std::vector<BlobRecord*> blobs = tagRecord->getBlobs(); // vector of blobs with this tag
-        std::sort(blobs.begin(), blobs.end(), BlobRecord::asc);
-
-        // union blob with union set
-        auto* newUnionSet = new std::vector<BlobRecord*>(unionSet->size() + blobs.size()); // pointer to the new union set
-        std::vector<BlobRecord*>::iterator end;
-        end = std::set_union(unionSet->begin(), unionSet->end(), blobs.begin(), blobs.end(), newUnionSet->begin(),
-                             BlobRecord::asc);
-
-        // resize new union set
-        newUnionSet->resize(static_cast<unsigned long>(end - newUnionSet->begin()));
-
-        // swap in new union set
-        auto* oldUnionSet = unionSet;
-        unionSet = newUnionSet;
-        delete oldUnionSet;
-    }
-
-    // intersect each blob in the union set with the search set
-    for(const auto &blobRecord : *unionSet) {
-
-        // sort the blob record's tags
-        std::vector<TagRecord*> blobTags = blobRecord->getTags();
-        std::sort(blobTags.begin(), blobTags.end(), TagRecord::asc);
-
-        // check if the search set's tags are in the blob record's tags
-        std::vector<TagRecord*> intersection(searchSet.size());
-        std::vector<TagRecord*>::iterator end;
-        end = std::set_intersection(searchSet.begin(), searchSet.end(), blobTags.begin(), blobTags.end(),
-                                    intersection.begin(), TagRecord::asc);
-
-        // resize the intersection set
-        intersection.resize(static_cast<unsigned long>(end - intersection.begin()));
-
-        // if tags match, add this record to the resultant set
-        if(intersection.size() == searchSet.size())
-            result.push_back(blobRecord);
-
-    }
-
-    delete unionSet;
-
-    return result;
-
-}
-
-/**
- * Whether the file is encrypted.
- */
-bool TfcFile::isEncrypted() {
-    return this->encrypted;
-}
-
-/**
- * Whether the file has been unlocked. If there is no encryption on the file, this will be true.
- */
-bool TfcFile::isUnlocked() {
-    return this->unlocked;
-}
-
-/**
- * Whether the file exists in the filesystem.
- */
-bool TfcFile::doesExist() {
-    return this->exists;
-}
-
-/**
  * Computes a hash from a byte array using the XXH64 variant of the xxHash algorithm.
  *
  * @param bytes The bytes for which the hash will be computed.
@@ -867,34 +846,93 @@ uint64_t TfcFile::hash(char* bytes, size_t size) {
 }
 
 /**
- * INTERNAL operation. Writes the current tag table from memory to the file at the *current position*. This will update
- * the tag table's position variable. This may overwrite parts of the blob table.
+ * Moves the cursor to a number of bytes from the beginning of the file.
+ *
+ * @param length The number of bytes from the beginning of the file to jump to.
  */
-void TfcFile::writeTagTable() {
+void TfcFile::jump(std::streampos length) {
+    this->stream.seekg(length, this->stream.beg);
+}
 
-    // update tag table position
-    this->tagTablePos = this->stream.tellg();
+/**
+ * Moves the cursor to a number of bytes from the end of the file.
+ *
+ * @param length The number of bytes from the end of the file to jump to.
+ */
+void TfcFile::jumpBack(std::streampos length) {
+    this->stream.seekg(length, this->stream.end);
+}
 
-    // write next nonce
-    this->writeUInt32(this->tagTableNextNonce);
+/**
+ * Moves the cursor forward by a number of bytes.
+ *
+ * @param length The number of bytes to move forward by.
+ */
+void TfcFile::next(std::streampos length) {
+    this->stream.seekg(length, this->stream.cur);
+}
 
-    // write tag count
-    this->writeUInt32(this->tagTable->size());
+/**
+ * Reads a string at the specified position. This function will first read a uint32_t to obtain the length of the
+ * string.
+ *
+ * @return A string at the cursor's current position.
+ */
+std::string TfcFile::readString() {
+    std::string str;
 
-    // rewrite tag table entries
-    for(auto &iter : *this->tagTable) {
-        TagRecord* row = iter.second;
+    // read the string into a buffer until a null terminator is reached
+    char current;
+    do {
 
-        // write nonce
-        this->writeUInt32(row->getNonce());
+        // read char from stream
+        this->stream.read(&current, 1);
+        if (this->stream.fail())
+            throw TfcFileException("Failed to read string");
 
-        // write name length and name
-        this->writeString(row->getName());
+        // convert char to string and append
+        if (current != '\0') // don't append null terminator, std::string already handles it
+            str += std::string(1, current);
 
-    }
 
-    // flush the stream
-    this->stream.flush();
+    } while (current != '\0');
+
+    return str;
+}
+
+/**
+ * Reads a uint32_t from the file and moves the cursor forward by 4 bytes.
+ *
+ * @return The uint32_t value from the file.
+ */
+uint32_t TfcFile::readUInt32() {
+    uint32_t value;
+    this->stream.read(reinterpret_cast<char*>(&value), sizeof(uint32_t));
+    if(this->stream.fail())
+        throw TfcFileException("Failed to read uint32");
+    return ntohl(value);
+}
+
+/**
+ * Reads a uint64_t from the file and moves the cursor forward by 4 bytes.
+ *
+ * @return The uint64_t value from the file.
+ */
+uint64_t TfcFile::readUInt64() {
+    uint64_t value;
+    this->stream.read(reinterpret_cast<char*>(&value), sizeof(uint64_t));
+    if(this->stream.fail())
+        throw TfcFileException("Failed to read uint64");
+    return be64toh(value);
+}
+
+/**
+ * Closes the file stream, resets all flags, and changes the operation mode to CLOSED.
+ */
+void TfcFile::reset() {
+    this->stream.close();
+    this->stream.clear();
+    this->op = TfcFileMode::CLOSED;
 }
 
 /**
@@ -932,13 +970,82 @@ void TfcFile::writeBlobTable() {
         this->writeUInt64(row->getSize());
 
         // write tag count
-        this->writeUInt32(static_cast<uint32_t >(row->getTags().size()));
+        this->writeUInt32(static_cast<uint32_t >(row->getTags()->size()));
 
         // write each tag's nonce
-        for(auto tag : row->getTags())
+        for(auto tag : *row->getTags())
             this->writeUInt32(tag->getNonce());
     }
 
     // flush the stream
     this->stream.flush();
+}
+
+/**
+ * Writes a string to the file at the current position and moves the cursor forward by a number of bytes equal to the
+ * length of the string.
+ *
+ * @param value The string to write.
+ */
+void TfcFile::writeString(const std::string &value) {
+
+    // write string bytes
+    this->stream.write(value.c_str(), value.size() + 1); // + 1 for null terminator
+    if(this->stream.fail())
+        throw TfcFileException("Failed to write string");
+}
+
+/**
+ * INTERNAL operation. Writes the current tag table from memory to the file at the *current position*. This will update
+ * the tag table's position variable. This may overwrite parts of the blob table, so ensure you rewrite it afterward.
+ */
+void TfcFile::writeTagTable() {
+
+    // update tag table position
+    this->tagTablePos = this->stream.tellg();
+
+    // write next nonce
+    this->writeUInt32(this->tagTableNextNonce);
+
+    // write tag count
+    this->writeUInt32(this->tagTable->size());
+
+    // rewrite tag table entries
+    for(auto &iter : *this->tagTable) {
+        TagRecord* row = iter.second;
+
+        // write nonce
+        this->writeUInt32(row->getNonce());
+
+        // write name length and name
+        this->writeString(row->getName());
+
+    }
+
+    // flush the stream
+    this->stream.flush();
+}
+
+/**
+ * Writes a uint32_t to the file at the current position and moves the cursor forward by 4 bytes.
+ *
+ * @param value The uint32_t value to write.
+ */
+void TfcFile::writeUInt32(const uint32_t &value) {
+    uint32_t networkByteValue = htonl(value);
+    this->stream.write((char*) &networkByteValue, sizeof(uint32_t));
+    if(this->stream.fail())
+        throw TfcFileException("Failed to write uint32");
+}
+
+/**
+ * Writes a uint64_t to the file at the current position and moves the cursor forward by 8 bytes.
+ *
+ * @param value The uint64_t value to write.
+ */
+void TfcFile::writeUInt64(const uint64_t &value) {
+    uint64_t networkByteValue = htobe64(value);
+    this->stream.write((char*) &networkByteValue, sizeof(uint64_t));
+    if(this->stream.fail())
+        throw TfcFileException("Failed to write uint64");
 }

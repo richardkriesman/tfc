@@ -126,11 +126,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    // create interactive task interface at top of screen
-    if (isInteractive) {
-        //std::cout << Terminal::Background::WHITE << "                    " << Terminal::Decorations::RESET;
-    }
-
     // print encryption warning if file is not encrypted
     if(!file->isEncrypted() && file->doesExist()) {
         std::cout << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << "Warning: "
@@ -226,9 +221,8 @@ int main(int argc, char** argv) {
 
                 // print tags
                 for(Tfc::TagRecord* tag : file->listTags())
-                    printf(rowTemplate.c_str(), tag->getName().c_str(), tag->getBlobs().size());
+                    printf(rowTemplate.c_str(), tag->getName().c_str(), tag->getBlobs()->size());
 
-                file->mode(Tfc::TfcFileMode::CLOSED);
                 continue;
             }
 
@@ -259,6 +253,7 @@ int main(int argc, char** argv) {
                 std::cout << status(true) << " Stashed " << name << " with ID " << *nonce << "\n";
                 delete nonce;
                 delete stashTask;
+
                 continue;
             }
 
@@ -295,6 +290,37 @@ int main(int argc, char** argv) {
                 // output success message
                 std::cout << status(true) << " Unstashed " << nonce << " into " << *name << "\n";
                 delete name;
+                delete task;
+
+                continue;
+            }
+
+            // delete command
+            if (args[0] == "delete" && args.size() == 2) {
+                int32_t nonce = std::stoi(args[1]);
+                if (nonce < 0)
+                    throw Tfc::TfcFileException("File IDs cannot be negative");
+
+                // set file mode to EDIT
+                file->mode(Tfc::TfcFileMode::EDIT);
+
+                // delete the blob
+                Tasker::Task* task = new Tasker::Task([&file, nonce](Tasker::TaskHandle* handle) -> void* {
+                    file->deleteBlob(static_cast<uint32_t>(nonce));
+
+                    return nullptr;
+                });
+
+                // wait for the task to complete
+                looper.run(task);
+                await(task, "Deleting file");
+                if (task->getState() == Tasker::TaskState::FAILED)
+                    std::rethrow_exception(task->getException());
+
+                // output success message
+                std::cout << status(true) << " Deleted " << nonce << "\n";
+                delete task;
+
                 continue;
             }
 
@@ -311,7 +337,6 @@ int main(int argc, char** argv) {
                     file->attachTag(static_cast<uint32_t>(nonce), args[i]);
                     std::cout << status(true) << " Tagged " << nonce << " as " << args[i] << "\n";
                 }
-                file->mode(Tfc::TfcFileMode::CLOSED);
 
                 continue;
             }
@@ -328,7 +353,6 @@ int main(int argc, char** argv) {
                 std::vector<Tfc::BlobRecord*> intersection;
                 file->mode(Tfc::TfcFileMode::READ);
                 intersection = file->intersection(tags);
-                file->mode(Tfc::TfcFileMode::CLOSED);
 
                 // print intersecting blobs
                 printBlobs(intersection);
@@ -348,6 +372,9 @@ int main(int argc, char** argv) {
         }
 
     }
+
+    // close the file
+    file->mode(Tfc::TfcFileMode::CLOSED);
 
     // stop the event loop
     looper.stop();
@@ -448,7 +475,7 @@ void help() {
                    "\tCommands can be run in non-interactive mode by prefixing the command \n"
                    "\twith --. For example, `--stash cute-cat.png`.\n",
            "--about", "--help", "--license", "--version", "help", "about", "license", "clear", "init",
-           "(TBI) key <key>", "stash <filename>", "unstash <id> [filename]", "(TBI) delete <id>", "tag <id> <tag> ...",
+           "(TBI) key <key>", "stash <filename>", "unstash <id> [filename]", "delete <id>", "tag <id> <tag> ...",
            "(TBI) untag <id> <tag>", "search <tag> ...", "files", "tags");
 }
 
@@ -558,7 +585,7 @@ void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs) {
 
         // build vector of tag names
         std::vector<std::string> tagNames;
-        for(auto tag : record->getTags())
+        for(auto tag : *record->getTags())
             tagNames.push_back(tag->getName());
 
         // sort the tag names

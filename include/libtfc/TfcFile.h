@@ -47,18 +47,19 @@ namespace Tfc {
     public:
         explicit TfcFile(const std::string &filename);
 
-        void mode(TfcFileMode mode);
-        TfcFileMode getMode();
-        void init();
-        uint32_t addBlob(const std::string &name, char* bytes, uint64_t size);
-        void attachTag(uint32_t nonce, const std::string &tag);
-        TfcFileBlob* readBlob(uint32_t nonce);
-        std::vector<BlobRecord*> listBlobs();
-        std::vector<TagRecord*> listTags();
+        uint32_t                 addBlob(const std::string &name, char* bytes, uint64_t size);
+        void                     attachTag(uint32_t nonce, const std::string &tag);
+        void                     deleteBlob(uint32_t nonce);
+        bool                     doesExist();
+        TfcFileMode              getMode();
+        void                     init();
         std::vector<BlobRecord*> intersection(const std::vector<std::string> &tags);
-        bool isEncrypted();
-        bool isUnlocked();
-        bool doesExist();
+        bool                     isEncrypted();
+        bool                     isUnlocked();
+        std::vector<BlobRecord*> listBlobs();
+        std::vector<TagRecord*>  listTags();
+        void                     mode(TfcFileMode mode);
+        TfcFileBlob*             readBlob(uint32_t nonce);
 
     private:
 
@@ -101,20 +102,20 @@ namespace Tfc {
         TagTable* tagTable = nullptr;
         BlobTable* blobTable = nullptr;
 
-        void reset();
-        void analyze();
-        uint64_t hash(char* bytes, size_t size);
-        uint32_t readUInt32();
-        uint64_t readUInt64();
+        void        analyze();
+        uint64_t    hash(char* bytes, size_t size);
+        void        jump(std::streampos length);
+        void        jumpBack(std::streampos length);
+        void        next(std::streampos length);
         std::string readString();
-        void writeUInt32(const uint32_t &value);
-        void writeUInt64(const uint64_t &value);
-        void writeString(const std::string &value);
-        void writeTagTable();
-        void writeBlobTable();
-        void next(std::streampos length);
-        void jump(std::streampos length);
-        void jumpBack(std::streampos length);
+        uint32_t    readUInt32();
+        uint64_t    readUInt64();
+        void        reset();
+        void        writeBlobTable();
+        void        writeString(const std::string &value);
+        void        writeTagTable();
+        void        writeUInt32(const uint32_t &value);
+        void        writeUInt64(const uint64_t &value);
     };
 
 }

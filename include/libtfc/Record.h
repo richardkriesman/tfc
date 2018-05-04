@@ -54,7 +54,7 @@ namespace Tfc {
         std::string getName() { return this->name; }
         uint64_t getHash() { return this->hash; }
         std::streampos getStart() { return this->start; }
-        std::vector<Tfc::TagRecord*> getTags() { return this->tags; }
+        std::vector<Tfc::TagRecord*>* getTags() { return &this->tags; }
         uint64_t getSize() { return this->size; }
         void addTag(Tfc::TagRecord* tag);
 
@@ -75,7 +75,7 @@ namespace Tfc {
         TagRecord(uint32_t nonce, const std::string &name);
 
         const std::string getName() { return this->name; }
-        const std::vector<Tfc::BlobRecord*> getBlobs() { return this->blobs; }
+        std::vector<Tfc::BlobRecord*>* getBlobs() { return &this->blobs; }
 
         void addBlob(Tfc::BlobRecord* blob);
 

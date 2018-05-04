@@ -57,6 +57,17 @@ TagRecord* TagTable::get(std::string name) {
 }
 
 /**
+ * Removes a record from the table.
+ *
+ * @param record The record to be removed.
+ */
+void TagTable::remove(TagRecord *record) {
+    this->nameMap.erase(record->name);
+    this->nonceMap.erase(record->getNonce());
+    this->_size--;
+};
+
+/**
  * Returns the number of tags in the table.
  */
 uint32_t TagTable::size() {
@@ -69,5 +80,5 @@ std::map<std::string, TagRecord*>::iterator TagTable::begin() {
 
 std::map<std::string, TagRecord*>::iterator TagTable::end() {
     return this->nameMap.end();
-};
+}
 
