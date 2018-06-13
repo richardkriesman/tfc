@@ -378,6 +378,7 @@ int main(int argc, char** argv) {
 
     // stop the event loop
     looper.stop();
+    looper.wait();
 
     // clean up
     delete file;

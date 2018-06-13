@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <iostream>
 #include "Tasker.h"
 
 using namespace Tasker;
@@ -122,8 +123,10 @@ void Looper::startInForeground() {
 }
 
 /**
- * Stops the Looper peacefully. The Looper will finish the current Task's cycle and then stop. If the Looper is started
- * again, it will resume from where it left off.
+ * Signals the Looper to stop peacefully. The Looper will finish the current Task's cycle and then stop. If the Looper
+ * is started again, it will resume from where it left off.
+ *
+ * This operation is asynchronous. To block until the looper exist, use Looper::wait().
  */
 void Looper::stop() {
     std::lock_guard<std::mutex> lock(this->mutex);
