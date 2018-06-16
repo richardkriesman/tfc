@@ -18,11 +18,7 @@
 #include <cstring>
 #include <chrono>
 #include <algorithm>
-#ifdef __APPLE__
-    #include "endian.h"
-#else
-    #include <endian.h>
-#endif
+#include "portable_endian.h"
 #include "xxhash/xxhash.h"
 #include "libtfc/TfcFile.h"
 

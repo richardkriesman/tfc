@@ -18,7 +18,7 @@ set(SOURCES src/main.cpp src/libtfc/TfcFile.cpp src/libtfc/TfcFileException.cpp 
         src/tasker/Task.cpp include/Tasker.h include/libtfc/TfcFile.h
         include/libtfc/TfcFileException.h include/libtfc/Record.h include/libtfc/TagTable.h
         include/libtfc/BlobTable.h include/Terminal.h include/License.h include/libtfc/Journal.h
-        include/Tasker.h src/tasker/Event.cpp include/endian.h)
+        include/Tasker.h src/tasker/Event.cpp include/portable_endian.h)
 
 # xxhash
 add_subdirectory(lib/xxhash/cmake_unofficial)
