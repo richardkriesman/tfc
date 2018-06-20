@@ -139,11 +139,17 @@ int main(int argc, char** argv) {
     while((input != "exit" && isInteractive) || currentCommand < commands.size()) {
 
         // print prompt
-        if (file->isUnlocked() && file->doesExist())
-            std::cout << Terminal::Foreground::GREEN;
-        else
+        if (file->isUnlocked() && file->doesExist()) {
+            std::cout << Terminal::Symbols::UNLOCKED << Terminal::Foreground::GREEN;
+        } else {
+            if (!file->doesExist()) {
+                std::cout << Terminal::Symbols::QUESTION;
+            } else if (!file->isUnlocked()) {
+                std::cout << Terminal::Symbols::LOCKED;
+            }
             std::cout << Terminal::Foreground::GREY;
-        std::cout << "tfc> " << Terminal::Decorations::RESET;
+        }
+        std::cout << " tfc> " << Terminal::Decorations::RESET;
 
         // get input
         if(isInteractive) { // interactive mode, prompt for input
@@ -407,24 +413,26 @@ void about() {
  * @param message A message to display to the user explaining the operation.
  */
 void await(Tasker::Task* task, const std::string &message) {
-    const char states[] = { '-', '\\', '|', '/' }; // animation state
+    const std::string states[] = { Terminal::Symbols::CLOCK_12, Terminal::Symbols::CLOCK_1,
+        Terminal::Symbols::CLOCK_2, Terminal::Symbols::CLOCK_3, Terminal::Symbols::CLOCK_4,
+        Terminal::Symbols::CLOCK_5, Terminal::Symbols::CLOCK_6, Terminal::Symbols::CLOCK_7,
+        Terminal::Symbols::CLOCK_8, Terminal::Symbols::CLOCK_9, Terminal::Symbols::CLOCK_10,
+        Terminal::Symbols::CLOCK_11 }; // animation state
     int i = 0; // current animation state
 
     // print message
-    std::cout << "[" << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << states[i]
-              << Terminal::Decorations::RESET << "] " << message;
+    std::cout << states[i] << message;
 
     // animate spinner until task is done
     Tasker::TaskState state = task->getState();
     while(state != Tasker::TaskState::COMPLETED && state != Tasker::TaskState::FAILED) {
 
         // update animation state
-        std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << Terminal::Cursor::forward(1)
-                  << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << states[i]
-                  << Terminal::Decorations::RESET << Terminal::Cursor::RESTORE << std::flush;
+        std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << states[i]
+            << Terminal::Cursor::RESTORE << std::flush;
 
         // move to next animation state
-        if(i < 3)
+        if(i < 11)
             i++;
         else
             i = 0;
@@ -680,12 +688,11 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::strin
  * Returns a string with a colored status indicator based on whether a command succeeded or failed.
  */
 std::string status(bool success) {
-    std::string statusStr = "[" + std::string(Terminal::Decorations::BOLD);
+    std::string statusStr;
     if(success)
-        statusStr += std::string(Terminal::Foreground::GREEN) + std::string(Terminal::Symbols::CHECKMARK);
+        statusStr = std::string(Terminal::Symbols::CHECKMARK) + std::string(" ");
     else
-        statusStr += std::string(Terminal::Foreground::RED) + std::string(Terminal::Symbols::CROSSMARK);
-    statusStr += std::string(Terminal::Decorations::RESET) + "]";
+        statusStr += std::string(Terminal::Symbols::CROSSMARK) + std::string(" ");
     return statusStr;
 }
 

@@ -60,9 +60,24 @@ namespace Terminal {
 
     class Symbols {
     public:
-        static constexpr const auto CHECKMARK = "\u2713";
-        static constexpr const auto CROSSMARK = "\u274C";
+        static constexpr const auto CHECKMARK = "\u2705";
+        static constexpr const auto CLOCK_1   = "\U0001F550";
+        static constexpr const auto CLOCK_2   = "\U0001F551";
+        static constexpr const auto CLOCK_3   = "\U0001F552";
+        static constexpr const auto CLOCK_4   = "\U0001F553";
+        static constexpr const auto CLOCK_5   = "\U0001F554";
+        static constexpr const auto CLOCK_6   = "\U0001F555";
+        static constexpr const auto CLOCK_7   = "\U0001F556";
+        static constexpr const auto CLOCK_8   = "\U0001F557";
+        static constexpr const auto CLOCK_9   = "\U0001F558";
+        static constexpr const auto CLOCK_10  = "\U0001F559";
+        static constexpr const auto CLOCK_11  = "\U0001F55A";
+        static constexpr const auto CLOCK_12  = "\U0001F55B";
+        static constexpr const auto CROSSMARK = "\U0001F4A5";
         static constexpr const auto DOT       = "\u002E";
+        static constexpr const auto LOCKED    = "\U0001F510";
+        static constexpr const auto QUESTION  = "\u2753";
+        static constexpr const auto UNLOCKED  = "\U0001F513";
     };
 }
 
