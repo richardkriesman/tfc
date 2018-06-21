@@ -21,13 +21,24 @@
 #include <unistd.h>
 #include <algorithm>
 #include <cmath>
+#include <csignal>
+#include <mutex>
 
 #include "Tasker.h"
 #include "libtfc/TfcFile.h"
 #include "Terminal.h"
 #include "License.h"
 
-#define VERSION "0.0.1"
+/**
+ * Command result types
+ */
+enum ResultType {
+    SUCCESS,
+    WARNING,
+    FAILURE,
+    OUTPUT,
+    INFO
+};
 
 /**
  * Forward declarations
@@ -41,14 +52,42 @@ std::vector<std::string> parseInput(const std::string &input);
 void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs);
 std::vector<std::string> split(const std::string &string, char delim);
 uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::string &path);
-std::string status(bool success = true);
+std::string status(ResultType resultType);
 Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename = "");
+
+/**
+ * Global variables
+ */
+std::mutex lock; // a lock on global vars
+bool shouldStop = false; // whether the loop should be stopped
+bool idle = false; // whether the loop is idle
+
+/**
+ * Handler for system stop signals
+ */
+void handleSignal(int sigNum) {
+    lock.lock();
+    if (idle) { // input is idle, stop immediately
+        std::cout << "\n";
+        exit(0);
+    } else {
+        std::cout << Terminal::Cursor::HOME << status(ResultType::INFO)
+                  << "Stopping..." << Terminal::Cursor::up(1) << Terminal::Cursor::END;
+        shouldStop = true;
+    }
+    lock.unlock();
+}
 
 /**
  * The main function. Parses and runs commands.
  */
 int main(int argc, char** argv) {
     bool isInteractive = false; // whether the client is operating in interactive mode
+
+    // trap signals to allow for safe shutdown
+    std::signal(SIGINT, handleSignal);
+    std::signal(SIGTERM, handleSignal);
+    std::signal(SIGHUP, handleSignal);
 
     // check for proper number of arguments
     if(argc < 2) {
@@ -85,7 +124,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // create an event handler
+    // create an event loop
     Tasker::Looper looper;
     looper.start();
 
@@ -126,34 +165,53 @@ int main(int argc, char** argv) {
         }
     }
 
+    // print welcome message if file does not exist
+    if (!file->doesExist()) {
+        std::cout << Terminal::Symbols::TIP << " " << Terminal::Decorations::BOLD << Terminal::Foreground::GREEN
+                  << "Welcome to TFC! " << Terminal::Decorations::RESET << "Type `init` to create a new container file "
+                  << "at " << filename << ".\n";
+    }
+
     // print encryption warning if file is not encrypted
-    if(!file->isEncrypted() && file->doesExist()) {
-        std::cout << Terminal::Decorations::BOLD << Terminal::Foreground::YELLOW << "Warning: "
-                  << Terminal::Decorations::RESET;
-        std::cout << "This container is not encrypted. Files can be unstashed by anyone!\n";
+    if (!file->isEncrypted() && file->doesExist()) {
+        std::cout << status(ResultType::WARNING) << "This container is not encrypted. Files can be unstashed by anyone!\n";
     }
 
     // handle commands
     std::string input;
     int currentCommand = 0; // current command index when running in non-interactive mode
-    while((input != "exit" && isInteractive) || currentCommand < commands.size()) {
+    while ((input != "exit" && isInteractive) || currentCommand < commands.size()) {
+
+        // check if the loop is being interrupted
+        lock.lock();
+        if (shouldStop) {
+            lock.unlock();
+            break;
+        }
+        lock.unlock();
 
         // print prompt
         if (file->isUnlocked() && file->doesExist()) {
-            std::cout << Terminal::Symbols::UNLOCKED << Terminal::Foreground::GREEN;
+            std::cout << Terminal::Symbols::UNLOCKED << Terminal::Foreground::GREEN << " ";
         } else {
             if (!file->doesExist()) {
-                std::cout << Terminal::Symbols::QUESTION;
+                std::cout << Terminal::Symbols::QUESTION << "  ";
             } else if (!file->isUnlocked()) {
                 std::cout << Terminal::Symbols::LOCKED;
             }
             std::cout << Terminal::Foreground::GREY;
         }
-        std::cout << " tfc> " << Terminal::Decorations::RESET;
+        std::cout << "tfc> " << Terminal::Decorations::RESET;
 
         // get input
         if(isInteractive) { // interactive mode, prompt for input
+            lock.lock();
+            idle = true;
+            lock.unlock();
             std::getline(std::cin, input);
+            lock.lock();
+            idle = false;
+            lock.unlock();
         } else { // non-interactive mode, get input commands vector
             input = commands[currentCommand++];
             std::cout << input << "\n";
@@ -185,7 +243,7 @@ int main(int argc, char** argv) {
 
             // clear screen command
             if (args[0] == "clear") {
-                std::cout << Terminal::Screen::CLEAR << status(true) << " Cleared screen\n";
+                std::cout << Terminal::Screen::CLEAR << status(ResultType::SUCCESS) << "Cleared screen\n";
                 continue;
             }
 
@@ -194,7 +252,7 @@ int main(int argc, char** argv) {
                 file->mode(Tfc::TfcFileMode::CREATE);
                 file->init();
                 file->mode(Tfc::TfcFileMode::READ);
-                std::cout << status(true) << " Created container file at " << filename << "\n";
+                std::cout << status(ResultType::SUCCESS) << "Created container file at " << filename << "\n";
                 continue;
             }
 
@@ -218,8 +276,10 @@ int main(int argc, char** argv) {
                 }
 
                 // build string templates
-                std::string headerTemplate = std::string("%-" + std::to_string(nameLength) + "s\t%-10s\n");
-                std::string rowTemplate = std::string("%-" + std::to_string(nameLength) + "s\t%-10lu\n");
+                std::string headerTemplate = status(ResultType::OUTPUT) +
+                        std::string("%-" + std::to_string(nameLength) + "s\t%-10s\n");
+                std::string rowTemplate = status(ResultType::OUTPUT) +
+                        std::string("%-" + std::to_string(nameLength) + "s\t%-10lu\n");
 
                 // print headers
                 printf(headerTemplate.c_str(), "Name", "File Count");
@@ -256,7 +316,7 @@ int main(int argc, char** argv) {
                 // extract the nonce
                 auto* nonce = static_cast<uint32_t*>(stashTask->getResult());
 
-                std::cout << status(true) << " Stashed " << name << " with ID " << *nonce << "\n";
+                std::cout << status(ResultType::SUCCESS) << "Stashed " << name << " with ID " << *nonce << "\n";
                 delete nonce;
                 delete stashTask;
 
@@ -294,7 +354,7 @@ int main(int argc, char** argv) {
                 auto* name = static_cast<std::string*>(task->getResult());
 
                 // output success message
-                std::cout << status(true) << " Unstashed " << nonce << " into " << *name << "\n";
+                std::cout << status(ResultType::SUCCESS) << "Unstashed " << nonce << " into " << *name << "\n";
                 delete name;
                 delete task;
 
@@ -324,7 +384,7 @@ int main(int argc, char** argv) {
                     std::rethrow_exception(task->getException());
 
                 // output success message
-                std::cout << status(true) << " Deleted " << nonce << "\n";
+                std::cout << status(ResultType::SUCCESS) << "Deleted " << nonce << "\n";
                 delete task;
 
                 continue;
@@ -341,7 +401,7 @@ int main(int argc, char** argv) {
                 file->mode(Tfc::TfcFileMode::EDIT);
                 for(int i = 2; i < args.size(); i++) {
                     file->attachTag(static_cast<uint32_t>(nonce), args[i]);
-                    std::cout << status(true) << " Tagged " << nonce << " as " << args[i] << "\n";
+                    std::cout << status(ResultType::SUCCESS) << "Tagged " << nonce << " as " << args[i] << "\n";
                 }
 
                 continue;
@@ -369,12 +429,12 @@ int main(int argc, char** argv) {
 
             // unknown command
             if(args[0] != "exit")
-                std::cerr << status(false) << " Invalid command. Type \"help\" for a list of commands.\n";
+                std::cerr << status(ResultType::FAILURE) << "Invalid command. Type \"help\" for a list of commands.\n";
 
         } catch (Tfc::TfcFileException &ex) {
-            std::cerr << status(false) << " " << ex.what() << "\n";
+            std::cerr << status(ResultType::FAILURE) << ex.what() << "\n";
         } catch (std::exception &ex) {
-            std::cerr << status(false) << " " << ex.what() << "\n";
+            std::cerr << status(ResultType::FAILURE) << ex.what() << "\n";
         }
 
     }
@@ -417,19 +477,18 @@ void await(Tasker::Task* task, const std::string &message) {
         Terminal::Symbols::CLOCK_2, Terminal::Symbols::CLOCK_3, Terminal::Symbols::CLOCK_4,
         Terminal::Symbols::CLOCK_5, Terminal::Symbols::CLOCK_6, Terminal::Symbols::CLOCK_7,
         Terminal::Symbols::CLOCK_8, Terminal::Symbols::CLOCK_9, Terminal::Symbols::CLOCK_10,
-        Terminal::Symbols::CLOCK_11 }; // animation state
+        Terminal::Symbols::CLOCK_11 }; // animation states
     int i = 0; // current animation state
 
     // print message
-    std::cout << states[i] << message;
+    std::cout << states[i] << " " << message;
 
     // animate spinner until task is done
     Tasker::TaskState state = task->getState();
     while(state != Tasker::TaskState::COMPLETED && state != Tasker::TaskState::FAILED) {
 
         // update animation state
-        std::cout << Terminal::Cursor::SAVE << Terminal::Cursor::HOME << states[i]
-            << Terminal::Cursor::RESTORE << std::flush;
+        std::cout << Terminal::Cursor::HOME << states[i] << Terminal::Cursor::END << std::flush;
 
         // move to next animation state
         if(i < 11)
@@ -582,12 +641,12 @@ void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs) {
 
     // print info for the resultant blobs
     unsigned long tagColStart = (ID_LEN + 2) + (HASH_LEN + 2); // start pos of the tag column
-    printf(headerTemplate.c_str(), "ID", "Hash", "Tags");
-    printf(headerTemplate.c_str(), "----------", "----------", "----------");
+    printf(std::string(status(ResultType::OUTPUT) + headerTemplate).c_str(), "ID", "Hash", "Tags");
+    printf(std::string(status(ResultType::OUTPUT) + headerTemplate).c_str(), "----------", "----------", "----------");
     for (Tfc::BlobRecord* record : blobs) {
 
         // print nonce
-        printf("%-10d  ", record->getNonce());
+        printf("%s%-10d  ", status(ResultType::OUTPUT).c_str(), record->getNonce());
 
         // print hash as hex
         printf("%llx  ", static_cast<unsigned long long>(record->getHash()));
@@ -612,7 +671,7 @@ void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs) {
 
             // if line exceeds max length, break to next line
             if(lineLength + printTag.length() > MAX_LINE_LEN) {
-                printf("%c", '\n');
+                printf("%c%s", '\n', status(ResultType::OUTPUT).c_str());
                 lineLength = tagColStart;
 
                 // print spacing up to start of tag column
@@ -686,13 +745,32 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::strin
 
 /**
  * Returns a string with a colored status indicator based on whether a command succeeded or failed.
+ *
+ * @param success Whether or not the command succeeded.
+ * @return A formatted status prefix to be printed to the terminal with a message.
  */
-std::string status(bool success) {
+std::string status(ResultType resultType) {
     std::string statusStr;
-    if(success)
-        statusStr = std::string(Terminal::Symbols::CHECKMARK) + std::string(" ");
-    else
-        statusStr += std::string(Terminal::Symbols::CROSSMARK) + std::string(" ");
+    switch (resultType) {
+        case ResultType::SUCCESS:
+            statusStr = Terminal::Symbols::CHECKMARK + std::string("  ");
+            break;
+        case ResultType::WARNING:
+            statusStr += std::string("    ") + Terminal::Decorations::BOLD +
+                         Terminal::Foreground::YELLOW + std::string("Warning: ") + Terminal::Decorations::RESET;
+            break;
+        case ResultType::FAILURE:
+            statusStr += Terminal::Symbols::CROSSMARK + std::string(" ") + Terminal::Decorations::BOLD +
+                         Terminal::Foreground::RED + std::string("Error: ") + Terminal::Decorations::RESET;
+            break;
+        case ResultType::OUTPUT:
+            statusStr += Terminal::Foreground::GREEN + std::string(Terminal::Symbols::RIGHT_ARROW) +
+                         std::string("  ") + Terminal::Decorations::RESET;
+            break;
+        case ResultType::INFO:
+            statusStr += Terminal::Symbols::BELL + std::string(" ");
+            break;
+    }
     return statusStr;
 }
 
