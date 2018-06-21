@@ -98,7 +98,7 @@ void Looper::loop(Looper* looper) {
 
         // check if the loop should stop
         lock.lock();
-        shouldStop = looper->shouldStop;
+        shouldStop = looper->shouldStop && looper->taskQueue.empty(); // task queue must be empty to stop
         lock.unlock();
 
     }
@@ -123,8 +123,7 @@ void Looper::startInForeground() {
 }
 
 /**
- * Signals the Looper to stop peacefully. The Looper will finish the current Task's cycle and then stop. If the Looper
- * is started again, it will resume from where it left off.
+ * Signals the Looper to stop peacefully. The Looper will finish the current queue and then stop.
  *
  * This operation is asynchronous. To block until the looper exist, use Looper::wait().
  */

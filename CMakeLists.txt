@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.9)
-project(tfc VERSION 0.0.1 LANGUAGES CXX C)
+project(tfc VERSION 0.2.0 LANGUAGES CXX C)
 
 # language options
 set(CMAKE_CXX_STANDARD 11)
@@ -34,7 +34,7 @@ include_directories(${OPENSSL_INCLUDE_DIR})
 
 # primary build target
 add_executable(tfc ${SOURCES})
+add_definitions(-DVERSION=\"${PROJECT_VERSION}\")
 target_link_libraries(tfc PRIVATE xxhash OpenSSL::Crypto)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(tfc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib)
-target_compile_definitions(tfc PRIVATE VERSION=\"${PROJECT_VERSION}\")
