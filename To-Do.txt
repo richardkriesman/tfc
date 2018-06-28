@@ -5,3 +5,27 @@ TFC To-Do
  - Encryption
  - Some sort of networking?
  - zsh-style autocomplete
+
+ How to fix corruption of the container when the process is killed during a stash:
+    While has bytes left to stash
+        Find empty block or loop until tables are reached
+        If empty block,
+            Write to disk
+            Continue
+        Else (at beginning of tables)
+            Store position
+            Move to end of tables
+            Calculate size of tables in bytes
+            Subtract size of tables from bytes remaining
+            Write difference out as all zeroes
+            Once container has been expanded enough to fit the file, write out the tables again
+            Write an entry in the new blob table for the new file
+            Update the table positions in memory and in the file
+            Flush buffer to disk
+            Jump back to stored position
+            Overwrite everything with the new file (should go up to the new tables)
+
+    This is not a perfect solution, but the best one I can come up with right now. The only issue I can think of would be
+    forcibly stopping the process after the table positions have been updated but before the tables have been overwritten.
+    This could leave the tables floating in the newly expanded part of the block section, which could lead to leaked disk
+    space.

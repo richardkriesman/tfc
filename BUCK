@@ -58,3 +58,21 @@ cxx_binary(
   ],
   visibility = ['PUBLIC']
 )
+
+cxx_binary(
+  name = 'tfc-debug',
+  header_namespace = 'tfc',
+  srcs = glob([
+    'tfc/src/**/*.cpp',
+  ]),
+  headers = subdir_glob([
+    ('tfc/include', '**/*.h'),
+    ('tfc/include', '**/*.hpp'),
+  ]),
+  deps = [
+    ':libtfc',
+    ':tasker'
+  ],
+  compiler_flags = ["-g"],
+  visibility = ['PUBLIC']
+)
