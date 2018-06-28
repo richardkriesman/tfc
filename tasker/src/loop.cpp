@@ -17,15 +17,15 @@
  */
 
 #include <iostream>
-#include "Tasker.h"
+#include <tasker/tasker.h>
 
 using namespace Tasker;
 
 /**
- * Destroys the Looper along with all handles. Tasks will *not* be destroyed, and its state will remain what it was
+ * Destroys the Loop along with all handles. Tasks will *not* be destroyed, and its state will remain what it was
  * when its handle was destroyed.
  */
-Looper::~Looper() {
+Loop::~Loop() {
     std::lock_guard<std::mutex> lock(this->mutex); // acquire the lock
 
     // clear the task queue
@@ -39,23 +39,23 @@ Looper::~Looper() {
 /**
  * Starts an event processing loop in this thread.
  */
-void Looper::loop(Looper* looper) {
+void Loop::loop(Loop* loop) {
     bool shouldStop = false;
     while(!shouldStop) { // continue loop until it's told to stop
-        std::unique_lock<std::mutex> lock(looper->mutex);
+        std::unique_lock<std::mutex> lock(loop->mutex);
 
         // if no tasks in queue, wait for a task to be added
-        if (looper->taskQueue.empty()) {
+        if (loop->taskQueue.empty()) {
             lock.unlock();
-            looper->scheduled.waitFor(std::chrono::seconds(3));
+            loop->scheduled.waitFor(std::chrono::seconds(3));
             lock.lock();
         }
 
         // run a task in the queue
-        if (!looper->taskQueue.empty()) {
+        if (!loop->taskQueue.empty()) {
 
             // get task from queue
-            TaskHandle* handle = looper->taskQueue.front();
+            TaskHandle* handle = loop->taskQueue.front();
             lock.unlock();
 
             // start running the task in another thread or resume the task if resumed
@@ -75,14 +75,14 @@ void Looper::loop(Looper* looper) {
 
                 // task was resumed by yield(), put task at end of queue and go to next cycle
                 case SUSPENDED:
-                    looper->taskQueue.pop();
-                    looper->taskQueue.push(handle);
+                    loop->taskQueue.pop();
+                    loop->taskQueue.push(handle);
                     break;
 
                 // task is done (completed or failed)
                 case COMPLETED:
                 case FAILED:
-                    looper->taskQueue.pop();
+                    loop->taskQueue.pop();
                     break;
 
                 // something else we don't care about
@@ -98,19 +98,19 @@ void Looper::loop(Looper* looper) {
 
         // check if the loop should stop
         lock.lock();
-        shouldStop = looper->shouldStop && looper->taskQueue.empty(); // task queue must be empty to stop
+        shouldStop = loop->shouldStop && loop->taskQueue.empty(); // task queue must be empty to stop
         lock.unlock();
 
     }
 
     // notify waiting threads that the Looper has stopped
-    looper->stopped.raise();
+    loop->stopped.raise();
 }
 
 /**
  * Starts an event processing loop in a new detached thread. This function is non-blocking.
  */
-void Looper::start() {
+void Loop::start() {
     std::thread thread(this->loop, this);
     thread.detach();
 }
@@ -118,27 +118,27 @@ void Looper::start() {
 /*
  * Starts an event processing loop in the current thread. This function blocks until the loop is stopped.
  */
-void Looper::startInForeground() {
+void Loop::startInForeground() {
     this->loop(this);
 }
 
 /**
- * Signals the Looper to stop peacefully. The Looper will finish the current queue and then stop.
+ * Signals the Loop to stop peacefully. The Looper will finish the current queue and then stop.
  *
- * This operation is asynchronous. To block until the looper exist, use Looper::wait().
+ * This operation is asynchronous. To block until the loop exist, use Loop::wait().
  */
-void Looper::stop() {
+void Loop::stop() {
     std::lock_guard<std::mutex> lock(this->mutex);
     this->shouldStop = true;
     this->scheduled.raise();
 }
 
 /**
- * Schedules a Task to be run by the Looper.
+ * Schedules a Task to be run by the Loop.
  *
  * @param task The Task to be run.
  */
-void Looper::run(Task *task) {
+void Loop::run(Task *task) {
     std::lock_guard<std::mutex> lock(this->mutex);
 
     // set task status to scheduled
@@ -153,8 +153,8 @@ void Looper::run(Task *task) {
 }
 
 /**
- * Blocks the current thread until the Looper has stopped.
+ * Blocks the current thread until the Loop has stopped.
  */
-void Looper::wait() {
+void Loop::wait() {
     this->stopped.wait();
 }

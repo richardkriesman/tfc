@@ -15,22 +15,22 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "libtfc/TfcFileException.h"
+#include <libtfc/exception.h>
 
 using namespace Tfc;
 
 /**
- * Creates a new TfcFileException, for errors related to TfcFile.
+ * Creates a new Exception, for errors related to File.
  *
  * @param message A message detailing the error.
  */
-TfcFileException::TfcFileException(const std::string &message) {
+Exception::Exception(const std::string &message) {
     this->message = message;
 }
 
 /**
  * Returns a message detailing the error.
  */
-const char* TfcFileException::what() const throw() {
+const char* Exception::what() const throw() {
     return this->message.c_str();
 }

@@ -1,9 +1,17 @@
 # exclude
+.DS_Store
 .idea/
-cmake-build-debug/
+.vscode/
 bin/
 tmp/
 obj/
+
+# buckaroo
+.buckd/
+.buckconfig.local
+BUCKAROO_DEPS
+buckaroo/
+buck-out/
 
 # exclude exceptions
 !bin/.gitkeep

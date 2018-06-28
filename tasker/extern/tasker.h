@@ -58,10 +58,10 @@ namespace Tasker {
     };
 
 
-    class Looper {
+    class Loop {
 
     public:
-        ~Looper();
+        ~Loop();
         void start();
         void startInForeground();
         void stop();
@@ -82,7 +82,7 @@ namespace Tasker {
         Event stopped;
 
         // functions
-        static void loop(Looper* looper);
+        static void loop(Loop* loop);
 
     };
 
@@ -113,7 +113,7 @@ namespace Tasker {
         void setState(TaskState state);
 
         friend class TaskHandle;
-        friend class Looper;
+        friend class Loop;
 
     };
 
@@ -142,8 +142,8 @@ namespace Tasker {
         ~TaskHandle();
 
         // execution context vars
-        Task* task;                          // task being run by this ControlHandle
-        std::thread* thread = nullptr;       // thread running the task
+        Task* task;                    // task being run by this ControlHandle
+        std::thread* thread = nullptr; // thread running the task
 
         // synchronization
         std::mutex mutex;     // mutex for controlling context access
@@ -157,7 +157,7 @@ namespace Tasker {
         void waitForContextChange();
 
         friend class Task;
-        friend class Looper;
+        friend class Loop;
 
     };
 

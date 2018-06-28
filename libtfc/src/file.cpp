@@ -18,9 +18,9 @@
 #include <cstring>
 #include <chrono>
 #include <algorithm>
-#include "portable_endian.h"
-#include "xxhash/xxhash.h"
-#include "libtfc/TfcFile.h"
+#include <xxhash/xxhash.h>
+#include <portable_endian/portable_endian.h>
+#include <libtfc/file.h>
 
 using namespace Tfc;
 
@@ -36,8 +36,8 @@ using namespace Tfc;
  *
  * @param filename The path of the file on the disk
  */
-TfcFile::TfcFile(const std::string &filename){
-    this->op = TfcFileMode::CLOSED;
+File::File(const std::string &filename){
+    this->op = FileMode::CLOSED;
     this->filename = filename;
 
     // determine if the file exists
@@ -53,9 +53,9 @@ TfcFile::TfcFile(const std::string &filename){
  * @param size The size of the blob in bytes.
  * @return The container index that was assigned to the blob.
  */
-uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
-    if(this->op != TfcFileMode::EDIT) // file must be in EDIT mode
-        throw TfcFileException("File not in EDIT mode");
+uint32_t File::addBlob(const std::string &name, char* bytes, uint64_t size) {
+    if(this->op != FileMode::EDIT) // file must be in EDIT mode
+        throw Exception("File not in EDIT mode");
 
     /*
      * Write blob bytes to free blocks
@@ -126,7 +126,7 @@ uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
         // write data to block
         this->stream.write(bytes + bytePos, blockDataSize);
         if(this->stream.fail())
-            throw TfcFileException("Failed to write blob data");
+            throw Exception("Failed to write blob data");
         bytePos += blockDataSize;
 
         // update next pos of last block
@@ -187,9 +187,9 @@ uint32_t TfcFile::addBlob(const std::string &name, char* bytes, uint64_t size) {
  * @param nonce The nonce of the blob to which the tag will be attached.
  * @param tag The string tag to be attached. Tags are case insensitive.
  */
-void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
-    if(this->op != TfcFileMode::EDIT)
-        throw TfcFileException("File not in EDIT mode");
+void File::attachTag(uint32_t nonce, const std::string &tag) {
+    if(this->op != FileMode::EDIT)
+        throw Exception("File not in EDIT mode");
 
     // convert tag to lower case
     std::string tagLower = tag;
@@ -198,7 +198,7 @@ void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
     // get the blob from the blob table
     BlobRecord* blobRow = this->blobTable->get(nonce);
     if(blobRow == nullptr)
-        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+        throw Exception("No blob was found with ID " + std::to_string(nonce));
 
     // get the tag from the tag table, or make a new one if it doesn't exist
     TagRecord* tagRow = this->tagTable->get(tagLower);
@@ -217,7 +217,7 @@ void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
         // check if tag is already attached
         for(auto _tag : *blobRow->getTags()) {
             if(_tag == tagRow) // tag is already attached
-                throw TfcFileException("Tag is already attached to this blob");
+                throw Exception("Tag is already attached to this blob");
         }
 
         // jump to blob table
@@ -244,14 +244,14 @@ void TfcFile::attachTag(uint32_t nonce, const std::string &tag) {
  *
  * @param nonce The nonce of the blob that will be deleted.
  */
-void TfcFile::deleteBlob(uint32_t nonce) {
-    if (this->op != TfcFileMode::EDIT)
-        throw TfcFileException("File not in EDIT mode");
+void File::deleteBlob(uint32_t nonce) {
+    if (this->op != FileMode::EDIT)
+        throw Exception("File not in EDIT mode");
 
     // get the blob from the blob table
     BlobRecord* blobRecord = this->blobTable->get(nonce);
     if (blobRecord == nullptr)
-        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+        throw Exception("No blob was found with ID " + std::to_string(nonce));
 
     // move to blob's starting block
     std::streampos startPos = blobRecord->getStart();
@@ -326,14 +326,14 @@ void TfcFile::deleteBlob(uint32_t nonce) {
 /**
  * Whether the file exists in the filesystem.
  */
-bool TfcFile::doesExist() {
+bool File::doesExist() {
     return this->exists;
 }
 
 /**
  * Returns the current operation mode of the file.
  */
-TfcFileMode TfcFile::getMode() {
+FileMode File::getMode() {
     return this->op;
 }
 
@@ -341,11 +341,11 @@ TfcFileMode TfcFile::getMode() {
  * Writes out the structure of an empty container file. Overwrites all file data.
  * Must be in CREATE mode.
  *
- * @throw TfcFileException The file is not in CREATE mode.
+ * @throw Exception The file is not in CREATE mode.
  */
-void TfcFile::init() {
-    if(this->op != TfcFileMode::CREATE)
-        throw TfcFileException("File not in CREATE mode");
+void File::init() {
+    if(this->op != FileMode::CREATE)
+        throw Exception("File not in CREATE mode");
     this->jump(0); // move cursor to beginning of file
 
     // write header data
@@ -381,9 +381,9 @@ void TfcFile::init() {
  * @param tags A vector of tags
  * @return A vector of BlobRecords whose tags contain all of the tags in the tags parameter.
  */
-std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &tags) {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
+std::vector<BlobRecord*> File::intersection(const std::vector<std::string> &tags) {
+    if(this->op != FileMode::READ)
+        throw Exception("File not in READ mode");
 
     std::vector<BlobRecord*> result; // set of intersecting BlobRecords
 
@@ -398,7 +398,7 @@ std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &t
         // get tag record
         TagRecord* record = this->tagTable->get(tagLower);
         if(record == nullptr)
-            throw TfcFileException(tagLower + " is not a tag");
+            throw Exception(tagLower + " is not a tag");
         searchSet.push_back(record);
 
     }
@@ -458,14 +458,14 @@ std::vector<BlobRecord*> TfcFile::intersection(const std::vector<std::string> &t
 /**
  * Whether the file is encrypted.
  */
-bool TfcFile::isEncrypted() {
+bool File::isEncrypted() {
     return this->encrypted;
 }
 
 /**
  * Whether the file has been unlocked. If there is no encryption on the file, this will be true.
  */
-bool TfcFile::isUnlocked() {
+bool File::isUnlocked() {
     return this->unlocked;
 }
 
@@ -474,9 +474,9 @@ bool TfcFile::isUnlocked() {
  *
  * @return A vector of pointers to the entries.
  */
-std::vector<BlobRecord*> TfcFile::listBlobs() {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
+std::vector<BlobRecord*> File::listBlobs() {
+    if(this->op != FileMode::READ)
+        throw Exception("File not in READ mode");
 
     std::vector<BlobRecord*> rows;
     for (auto &iter : *this->blobTable)
@@ -490,9 +490,9 @@ std::vector<BlobRecord*> TfcFile::listBlobs() {
  *
  * @return A vector of pointers to the entries.
  */
-std::vector<TagRecord*> TfcFile::listTags() {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
+std::vector<TagRecord*> File::listTags() {
+    if(this->op != FileMode::READ)
+        throw Exception("File not in READ mode");
 
     std::vector<TagRecord*> rows;
     for (auto &iter : *this->tagTable)
@@ -505,59 +505,59 @@ std::vector<TagRecord*> TfcFile::listTags() {
  * Switches the operating mode to CLOSED, READ, CREATE, or EDIT.
  *
  * @param mode The mode to switch to.
- * @throw TfcFileException Failed to open the file in that mode.
+ * @throw Exception Failed to open the file in that mode.
  */
-void TfcFile::mode(TfcFileMode mode) {
+void File::mode(FileMode mode) {
     switch(mode) {
-        case TfcFileMode::CLOSED: // close stream and clear flags
-            if(this->op == TfcFileMode::CLOSED)
+        case FileMode::CLOSED: // close stream and clear flags
+            if(this->op == FileMode::CLOSED)
                 break;
 
             this->reset();
             break;
-        case TfcFileMode::READ: // open file for reading
-            if(this->op == TfcFileMode::READ)
+        case FileMode::READ: // open file for reading
+            if(this->op == FileMode::READ)
                 break;
-            if(this->op != TfcFileMode::CLOSED)
+            if(this->op != FileMode::CLOSED)
                 this->reset();
 
             // open file for reading
             this->stream.open(this->filename, std::ios::in | std::ios::binary);
             if(this->stream.fail())
-                throw TfcFileException("Failed to open for reading");
-            this->op = TfcFileMode::READ;
+                throw Exception("Failed to open for reading");
+            this->op = FileMode::READ;
 
             // analyze the file
             this->analyze();
 
             break;
-        case TfcFileMode::CREATE: // open a new file
-            if(this->op == TfcFileMode::CREATE)
+        case FileMode::CREATE: // open a new file
+            if(this->op == FileMode::CREATE)
                 break;
-            if(this->op != TfcFileMode::CLOSED)
+            if(this->op != FileMode::CLOSED)
                 this->reset();
 
             // open a new file and truncate it
             this->stream.open(this->filename, std::ios::out | std::ios::binary);
             if(this->stream.fail())
-                throw TfcFileException("Failed to open a new file");
-            this->op = TfcFileMode::CREATE;
+                throw Exception("Failed to open a new file");
+            this->op = FileMode::CREATE;
             break;
 
-        case TfcFileMode::EDIT: // open file for editing
-            if(this->op == TfcFileMode::EDIT)
+        case FileMode::EDIT: // open file for editing
+            if(this->op == FileMode::EDIT)
                 break;
-            if(this->op != TfcFileMode::CLOSED)
+            if(this->op != FileMode::CLOSED)
                 this->reset();
 
             // open file for writing
             this->stream.open(this->filename, std::ios::in | std::ios::out | std::ios::binary);
             if(this->stream.fail())
-                throw TfcFileException("Failed to open for editing");
-            this->op = TfcFileMode::EDIT;
+                throw Exception("Failed to open for editing");
+            this->op = FileMode::EDIT;
             break;
         default:
-            throw TfcFileException("Invalid mode");
+            throw Exception("Invalid mode");
     }
 }
 
@@ -565,19 +565,19 @@ void TfcFile::mode(TfcFileMode mode) {
  * READ operation. Reads a blob with the specified nonce.
  *
  * @param nonce The nonce of the blob to read.
- * @return A TfcFileBlob struct containing the size and char* to the data. Null if the nonce does not exist.
+ * @return A Blob struct containing the size and char* to the data. Null if the nonce does not exist.
  */
-TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
+Blob* File::readBlob(uint32_t nonce) {
+    if(this->op != FileMode::READ)
+        throw Exception("File not in READ mode");
 
     // get the blob's record
     BlobRecord* record = this->blobTable->get(nonce);
     if(record == nullptr)
-        throw TfcFileException("No blob was found with ID " + std::to_string(nonce));
+        throw Exception("No blob was found with ID " + std::to_string(nonce));
 
     // create a new blob struct
-    auto* blob = new TfcFileBlob();
+    auto* blob = new Blob();
     blob->record = record;
 
     // jump to blob file
@@ -601,7 +601,7 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
         // read bytes into the buffer
         this->stream.read(blob->data + (blob->record->getSize() - remainingSize), blockByteCount);
         if(this->stream.fail())
-            throw TfcFileException("Failed to read block");
+            throw Exception("Failed to read block");
 
         // subtract bytes we just read from remaining
         remainingSize -= blockByteCount;
@@ -627,9 +627,9 @@ TfcFileBlob* TfcFile::readBlob(uint32_t nonce) {
  * READ mode operation. Analyzes the structure of the file. Finds the starting position of file sections, builds a
  * blob table for blobs, and builds a tag table for tags.
  */
-void TfcFile::analyze() {
-    if(this->op != TfcFileMode::READ)
-        throw TfcFileException("File not in READ mode");
+void File::analyze() {
+    if(this->op != FileMode::READ)
+        throw Exception("File not in READ mode");
     this->jump(0);
 
     // current state of the analyzer
@@ -655,12 +655,12 @@ void TfcFile::analyze() {
                 // check magic number
                 magicNumber = this->readUInt32();
                 if(magicNumber != MAGIC_NUMBER)
-                    throw TfcFileException("Not a valid container file");
+                    throw Exception("Not a valid container file");
 
                 // check file version
                 version = this->readUInt32();
                 if(version > FILE_VERSION)
-                    throw TfcFileException("Container version mismatch. Must be <= " + std::to_string(FILE_VERSION));
+                    throw Exception("Container version mismatch. Must be <= " + std::to_string(FILE_VERSION));
 
                 // check if file is encrypted (DEK will be all 0s)
                 char dek[32];
@@ -790,24 +790,24 @@ void TfcFile::analyze() {
  * @param size The size of the bytes
  * @return The computed hash for the bytes.
  */
-uint64_t TfcFile::hash(char* bytes, size_t size) {
+uint64_t File::hash(char* bytes, size_t size) {
 
     // create hash state for storing progress
     XXH64_state_t* state = XXH64_createState();
     if(state == nullptr) // error occurred
-        throw TfcFileException("Failed to allocate hash state");
+        throw Exception("Failed to allocate hash state");
 
     // allocate buffer
     size_t bufferSize = this->HASH_BUFFER_SIZE; // size of the buffer
     const char* buffer = (char*)malloc(bufferSize);
     if(buffer == nullptr)
-        throw TfcFileException("Failed to allocate hash buffer");
+        throw Exception("Failed to allocate hash buffer");
 
     // set the seed for this hash
     const unsigned long long seed = this->MAGIC_NUMBER; // we'll just use the file's magic number as the seed
     const XXH_errorcode resetResult = XXH64_reset(state, seed);
     if(resetResult == XXH_ERROR)
-        throw TfcFileException("Failed to seed the hash state");
+        throw Exception("Failed to seed the hash state");
 
     // read bytes in blocks
     while(size > 0) {
@@ -825,7 +825,7 @@ uint64_t TfcFile::hash(char* bytes, size_t size) {
         // add buffer to hash
         XXH_errorcode addResult = XXH64_update(state, buffer, byteCount);
         if(addResult == XXH_ERROR)
-            throw TfcFileException("Failed to update hash state with block");
+            throw Exception("Failed to update hash state with block");
 
         size -= byteCount;
     }
@@ -846,7 +846,7 @@ uint64_t TfcFile::hash(char* bytes, size_t size) {
  *
  * @param length The number of bytes from the beginning of the file to jump to.
  */
-void TfcFile::jump(std::streampos length) {
+void File::jump(std::streampos length) {
     this->stream.seekg(length, this->stream.beg);
 }
 
@@ -855,7 +855,7 @@ void TfcFile::jump(std::streampos length) {
  *
  * @param length The number of bytes from the end of the file to jump to.
  */
-void TfcFile::jumpBack(std::streampos length) {
+void File::jumpBack(std::streampos length) {
     this->stream.seekg(length, this->stream.end);
 }
 
@@ -864,7 +864,7 @@ void TfcFile::jumpBack(std::streampos length) {
  *
  * @param length The number of bytes to move forward by.
  */
-void TfcFile::next(std::streampos length) {
+void File::next(std::streampos length) {
     this->stream.seekg(length, this->stream.cur);
 }
 
@@ -874,7 +874,7 @@ void TfcFile::next(std::streampos length) {
  *
  * @return A string at the cursor's current position.
  */
-std::string TfcFile::readString() {
+std::string File::readString() {
     std::string str;
 
     // read the string into a buffer until a null terminator is reached
@@ -884,7 +884,7 @@ std::string TfcFile::readString() {
         // read char from stream
         this->stream.read(&current, 1);
         if (this->stream.fail())
-            throw TfcFileException("Failed to read string");
+            throw Exception("Failed to read string");
 
         // convert char to string and append
         if (current != '\0') // don't append null terminator, std::string already handles it
@@ -901,11 +901,11 @@ std::string TfcFile::readString() {
  *
  * @return The uint32_t value from the file.
  */
-uint32_t TfcFile::readUInt32() {
+uint32_t File::readUInt32() {
     uint32_t value;
     this->stream.read(reinterpret_cast<char*>(&value), sizeof(uint32_t));
     if(this->stream.fail())
-        throw TfcFileException("Failed to read uint32");
+        throw Exception("Failed to read uint32");
     return ntohl(value);
 }
 
@@ -914,28 +914,28 @@ uint32_t TfcFile::readUInt32() {
  *
  * @return The uint64_t value from the file.
  */
-uint64_t TfcFile::readUInt64() {
+uint64_t File::readUInt64() {
     uint64_t value;
     this->stream.read(reinterpret_cast<char*>(&value), sizeof(uint64_t));
     if(this->stream.fail())
-        throw TfcFileException("Failed to read uint64");
+        throw Exception("Failed to read uint64");
     return be64toh(value);
 }
 
 /**
  * Closes the file stream, resets all flags, and changes the operation mode to CLOSED.
  */
-void TfcFile::reset() {
+void File::reset() {
     this->stream.close();
     this->stream.clear();
-    this->op = TfcFileMode::CLOSED;
+    this->op = FileMode::CLOSED;
 }
 
 /**
  * INTERNAL operation. Writes the current blob table from memory to the file at the *current position*. This will update
  * the blob table's position variable.
  */
-void TfcFile::writeBlobTable() {
+void File::writeBlobTable() {
 
     // update blob table position
     this->blobTablePos = this->stream.tellg();
@@ -983,19 +983,19 @@ void TfcFile::writeBlobTable() {
  *
  * @param value The string to write.
  */
-void TfcFile::writeString(const std::string &value) {
+void File::writeString(const std::string &value) {
 
     // write string bytes
     this->stream.write(value.c_str(), value.size() + 1); // + 1 for null terminator
     if(this->stream.fail())
-        throw TfcFileException("Failed to write string");
+        throw Exception("Failed to write string");
 }
 
 /**
  * INTERNAL operation. Writes the current tag table from memory to the file at the *current position*. This will update
  * the tag table's position variable. This may overwrite parts of the blob table, so ensure you rewrite it afterward.
  */
-void TfcFile::writeTagTable() {
+void File::writeTagTable() {
 
     // update tag table position
     this->tagTablePos = this->stream.tellg();
@@ -1027,11 +1027,11 @@ void TfcFile::writeTagTable() {
  *
  * @param value The uint32_t value to write.
  */
-void TfcFile::writeUInt32(const uint32_t &value) {
+void File::writeUInt32(const uint32_t &value) {
     uint32_t networkByteValue = htonl(value);
     this->stream.write((char*) &networkByteValue, sizeof(uint32_t));
     if(this->stream.fail())
-        throw TfcFileException("Failed to write uint32");
+        throw Exception("Failed to write uint32");
 }
 
 /**
@@ -1039,9 +1039,9 @@ void TfcFile::writeUInt32(const uint32_t &value) {
  *
  * @param value The uint64_t value to write.
  */
-void TfcFile::writeUInt64(const uint64_t &value) {
+void File::writeUInt64(const uint64_t &value) {
     uint64_t networkByteValue = htobe64(value);
     this->stream.write((char*) &networkByteValue, sizeof(uint64_t));
     if(this->stream.fail())
-        throw TfcFileException("Failed to write uint64");
+        throw Exception("Failed to write uint64");
 }

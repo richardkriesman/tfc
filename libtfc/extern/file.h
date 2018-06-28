@@ -22,44 +22,42 @@
 #include <fstream>
 #include <arpa/inet.h>
 #include <chrono>
-
-#include "TfcFileException.h"
-#include "BlobTable.h"
-#include "TagTable.h"
+#include <libtfc/exception.h>
+#include <libtfc/table.h>
 
 namespace Tfc {
 
-    enum TfcFileMode {
+    enum FileMode {
         CLOSED,
         READ,
         CREATE,
         EDIT
     };
 
-    struct TfcFileBlob {
+    struct Blob {
         BlobRecord* record;
         char* data;
     };
 
 
-    class TfcFile {
+    class File {
 
     public:
-        explicit TfcFile(const std::string &filename);
+        explicit File(const std::string &filename);
 
         uint32_t                 addBlob(const std::string &name, char* bytes, uint64_t size);
         void                     attachTag(uint32_t nonce, const std::string &tag);
         void                     deleteBlob(uint32_t nonce);
         bool                     doesExist();
-        TfcFileMode              getMode();
+        FileMode              getMode();
         void                     init();
         std::vector<BlobRecord*> intersection(const std::vector<std::string> &tags);
         bool                     isEncrypted();
         bool                     isUnlocked();
         std::vector<BlobRecord*> listBlobs();
         std::vector<TagRecord*>  listTags();
-        void                     mode(TfcFileMode mode);
-        TfcFileBlob*             readBlob(uint32_t nonce);
+        void                     mode(FileMode mode);
+        Blob*             readBlob(uint32_t nonce);
 
     private:
 
@@ -80,7 +78,7 @@ namespace Tfc {
         const unsigned int NONCE_LEN = 4;
 
         // file vars
-        TfcFileMode op;           // current operation mode
+        FileMode op;           // current operation mode
         std::string filename;     // name of the file
         std::fstream stream;      // file stream
         bool encrypted = false;   // whether the file is encrypted

@@ -17,8 +17,7 @@
  */
 
 #include <cstdarg>
-
-#include "Tasker.h"
+#include <tasker/tasker.h>
 
 using namespace Tasker;
 
@@ -71,7 +70,7 @@ void TaskHandle::resume() {
 }
 
 /**
- * Blocks execution of a thread until the control handle undergoes a context change. Intended for use by Looper when
+ * Blocks execution of a thread until the control handle undergoes a context change. Intended for use by the Loop when
  * executing a Task.
  */
 void TaskHandle::waitForContextChange() {

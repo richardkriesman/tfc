@@ -15,9 +15,38 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#include "libtfc/TagTable.h"
+#include <libtfc/table.h>
 
 using namespace Tfc;
+
+void BlobTable::add(BlobRecord* row) {
+    this->map.insert({ row->getNonce(), row });
+    this->_size++;
+}
+
+BlobRecord* BlobTable::get(uint32_t nonce) {
+    auto row = this->map.find(nonce);
+    if(row == this->map.end())
+        return nullptr;
+    return row->second;
+}
+
+void BlobTable::remove(BlobRecord *record) {
+    this->map.erase(record->getNonce());
+    this->_size--;
+}
+
+uint32_t BlobTable::size() {
+    return this->_size;
+}
+
+std::map<uint32_t, BlobRecord *>::iterator BlobTable::begin() {
+    return this->map.begin();
+}
+
+std::map<uint32_t, BlobRecord *>::iterator BlobTable::end() {
+    return this->map.end();
+}
 
 /**
  * Adds a new tag to the table.
@@ -81,4 +110,3 @@ std::map<std::string, TagRecord*>::iterator TagTable::begin() {
 std::map<std::string, TagRecord*>::iterator TagTable::end() {
     return this->nameMap.end();
 }
-

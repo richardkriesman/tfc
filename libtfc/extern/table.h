@@ -15,10 +15,10 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef TFC_JUMPTABLE_H
-#define TFC_JUMPTABLE_H
+#ifndef TFC_TABLE_H
+#define TFC_TABLE_H
 
-#include "Record.h"
+#include <libtfc/record.h>
 
 namespace Tfc {
 
@@ -39,7 +39,26 @@ namespace Tfc {
 
     };
 
+    class TagTable {
+
+    public:
+        void add(TagRecord* row);
+        TagRecord* get(uint32_t nonce);
+        TagRecord* get(std::string name);
+        void remove(TagRecord* record);
+        uint32_t size();
+
+        std::map<std::string, TagRecord*>::iterator begin();
+        std::map<std::string, TagRecord*>::iterator end();
+
+    private:
+        uint32_t _size = 0;
+        std::map<std::string, TagRecord*> nameMap;   // name -> row mapping
+        std::map<uint32_t, TagRecord*> nonceMap;     // nonce -> row mapping
+
+    };
+
 };
 
 
-#endif //TFC_JUMPTABLE_H
+#endif //TFC_TABLE_H

@@ -23,11 +23,12 @@
 #include <cmath>
 #include <csignal>
 #include <mutex>
+#include <tasker/tasker.h>
+#include <libtfc/file.h>
+#include <tfc/terminal.h>
+#include <tfc/license.h>
 
-#include "Tasker.h"
-#include "libtfc/TfcFile.h"
-#include "Terminal.h"
-#include "License.h"
+#define VERSION "0.2.1"
 
 /**
  * Command result types
@@ -51,9 +52,9 @@ void license();
 std::vector<std::string> parseInput(const std::string &input);
 void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs);
 std::vector<std::string> split(const std::string &string, char delim);
-uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::string &path);
+uint32_t stash(Tfc::File* file, const std::string &filename, const std::string &path);
 std::string status(ResultType resultType);
-Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename = "");
+Tfc::BlobRecord* unstash(Tfc::File* file, uint32_t id, const std::string &filename = "");
 
 /**
  * Global variables
@@ -114,19 +115,19 @@ int main(int argc, char** argv) {
     }
 
     // try to open a file
-    Tfc::TfcFile* file = nullptr;
+    Tfc::File* file = nullptr;
     try {
-        file = new Tfc::TfcFile(filename);
+        file = new Tfc::File(filename);
         if(file->doesExist())
-            file->mode(Tfc::READ);
-    } catch (Tfc::TfcFileException &ex) {
+            file->mode(Tfc::FileMode::READ);
+    } catch (Tfc::Exception &ex) {
         std::cerr << "tfc: " << ex.what() << "\n";
         return 1;
     }
 
     // create an event loop
-    Tasker::Looper looper;
-    looper.start();
+    Tasker::Loop loop;
+    loop.start();
 
     // if non-interactive mode, build a list of commands to be parsed
     std::vector<std::string> commands;
@@ -249,23 +250,23 @@ int main(int argc, char** argv) {
 
             // init command
             if (args[0] == "init") {
-                file->mode(Tfc::TfcFileMode::CREATE);
+                file->mode(Tfc::FileMode::CREATE);
                 file->init();
-                file->mode(Tfc::TfcFileMode::READ);
+                file->mode(Tfc::FileMode::READ);
                 std::cout << status(ResultType::SUCCESS) << "Created container file at " << filename << "\n";
                 continue;
             }
 
             // list files command
             if(args[0] == "files") {
-                file->mode(Tfc::TfcFileMode::READ);
+                file->mode(Tfc::FileMode::READ);
                 printBlobs(file->listBlobs());
                 continue;
             }
 
             // list tags command
             if(args[0] == "tags") {
-                file->mode(Tfc::TfcFileMode::READ);
+                file->mode(Tfc::FileMode::READ);
                 std::vector<Tfc::TagRecord*> tags = file->listTags();
 
                 // determine the longest tag name
@@ -308,7 +309,7 @@ int main(int argc, char** argv) {
                 });
 
                 // show animation while the file is stashed
-                looper.run(stashTask);
+                loop.run(stashTask);
                 await(stashTask, "Stashing " + name);
                 if (stashTask->getState() == Tasker::TaskState::FAILED)
                     std::rethrow_exception(stashTask->getException());
@@ -327,7 +328,7 @@ int main(int argc, char** argv) {
             if (args[0] == "unstash" && (args.size() == 2 || args.size() == 3)) {
                 int32_t nonce = std::stoi(args[1]);
                 if (nonce < 0)
-                    throw Tfc::TfcFileException("File IDs cannot be negative");
+                    throw Tfc::Exception("File IDs cannot be negative");
 
                 // unstash the file
                 Tasker::Task* task = new Tasker::Task([&file, nonce, &args](Tasker::TaskHandle* handle) -> void* {
@@ -345,7 +346,7 @@ int main(int argc, char** argv) {
                 });
 
                 // wait for the task to complete
-                looper.run(task);
+                loop.run(task);
                 await(task, "Unstashing file");
                 if (task->getState() == Tasker::TaskState::FAILED)
                     std::rethrow_exception(task->getException());
@@ -365,10 +366,10 @@ int main(int argc, char** argv) {
             if (args[0] == "delete" && args.size() == 2) {
                 int32_t nonce = std::stoi(args[1]);
                 if (nonce < 0)
-                    throw Tfc::TfcFileException("File IDs cannot be negative");
+                    throw Tfc::Exception("File IDs cannot be negative");
 
                 // set file mode to EDIT
-                file->mode(Tfc::TfcFileMode::EDIT);
+                file->mode(Tfc::FileMode::EDIT);
 
                 // delete the blob
                 Tasker::Task* task = new Tasker::Task([&file, nonce](Tasker::TaskHandle* handle) -> void* {
@@ -378,7 +379,7 @@ int main(int argc, char** argv) {
                 });
 
                 // wait for the task to complete
-                looper.run(task);
+                loop.run(task);
                 await(task, "Deleting file");
                 if (task->getState() == Tasker::TaskState::FAILED)
                     std::rethrow_exception(task->getException());
@@ -394,11 +395,11 @@ int main(int argc, char** argv) {
             if (args[0] == "tag" && args.size() >= 3) {
                 int32_t nonce = std::stoi(args[1]);
                 if (nonce < 0)
-                    throw Tfc::TfcFileException("File IDs cannot be negative");
+                    throw Tfc::Exception("File IDs cannot be negative");
 
                 // attach the tags
-                file->mode(Tfc::TfcFileMode::READ);
-                file->mode(Tfc::TfcFileMode::EDIT);
+                file->mode(Tfc::FileMode::READ);
+                file->mode(Tfc::FileMode::EDIT);
                 for(int i = 2; i < args.size(); i++) {
                     file->attachTag(static_cast<uint32_t>(nonce), args[i]);
                     std::cout << status(ResultType::SUCCESS) << "Tagged " << nonce << " as " << args[i] << "\n";
@@ -417,7 +418,7 @@ int main(int argc, char** argv) {
 
                 // get a set of intersecting blobs
                 std::vector<Tfc::BlobRecord*> intersection;
-                file->mode(Tfc::TfcFileMode::READ);
+                file->mode(Tfc::FileMode::READ);
                 intersection = file->intersection(tags);
 
                 // print intersecting blobs
@@ -431,7 +432,7 @@ int main(int argc, char** argv) {
             if(args[0] != "exit")
                 std::cerr << status(ResultType::FAILURE) << "Invalid command. Type \"help\" for a list of commands.\n";
 
-        } catch (Tfc::TfcFileException &ex) {
+        } catch (Tfc::Exception &ex) {
             std::cerr << status(ResultType::FAILURE) << ex.what() << "\n";
         } catch (std::exception &ex) {
             std::cerr << status(ResultType::FAILURE) << ex.what() << "\n";
@@ -440,11 +441,11 @@ int main(int argc, char** argv) {
     }
 
     // close the file
-    file->mode(Tfc::TfcFileMode::CLOSED);
+    file->mode(Tfc::FileMode::CLOSED);
 
     // stop the event loop
-    looper.stop();
-    looper.wait();
+    loop.stop();
+    loop.wait();
 
     // clean up
     delete file;
@@ -714,13 +715,13 @@ std::vector<std::string> split(const std::string &string, char delim) {
  * @param path The path of the file to stash
  * @return The ID that was assigned to the stashed file.
  */
-uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::string &path) {
+uint32_t stash(Tfc::File* file, const std::string &filename, const std::string &path) {
 
     // read in file
     std::ifstream stream;
     stream.open(path, std::ios::binary | std::ios::in | std::ios::ate);
     if(stream.fail())
-        throw Tfc::TfcFileException("Failed to open file " + path + " for reading");
+        throw Tfc::Exception("Failed to open file " + path + " for reading");
 
     // read stream size
     std::streamsize size = stream.tellg();
@@ -732,10 +733,10 @@ uint32_t stash(Tfc::TfcFile* file, const std::string &filename, const std::strin
     stream.close();
 
     // add data as blob
-    file->mode(Tfc::TfcFileMode::READ);
-    file->mode(Tfc::TfcFileMode::EDIT);
+    file->mode(Tfc::FileMode::READ);
+    file->mode(Tfc::FileMode::EDIT);
     uint32_t nonce = file->addBlob(filename, data, static_cast<uint64_t>(size));
-    file->mode(Tfc::TfcFileMode::CLOSED);
+    file->mode(Tfc::FileMode::CLOSED);
 
     // clean up
     delete [] data;
@@ -782,15 +783,15 @@ std::string status(ResultType resultType) {
  * @param filename The name the file should be given when it is written to the filesystem. Original name if not
  *                 specified.
  */
-Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &filename) {
+Tfc::BlobRecord* unstash(Tfc::File* file, uint32_t id, const std::string &filename) {
     Tfc::BlobRecord* record;
 
     // read the blob from the container
-    file->mode(Tfc::TfcFileMode::READ);
-    Tfc::TfcFileBlob* blob = file->readBlob(id);
-    file->mode(Tfc::TfcFileMode::CLOSED);
+    file->mode(Tfc::FileMode::READ);
+    Tfc::Blob* blob = file->readBlob(id);
+    file->mode(Tfc::FileMode::CLOSED);
     if(blob == nullptr)
-        throw Tfc::TfcFileException("No file with that ID exists");
+        throw Tfc::Exception("No file with that ID exists");
     record = blob->record;
 
     // determine the filename
@@ -803,7 +804,7 @@ Tfc::BlobRecord* unstash(Tfc::TfcFile* file, uint32_t id, const std::string &fil
     // open the file for writing
     std::ofstream stream(blobFilename.c_str(), std::ios::out | std::ios::binary);
     if(stream.fail())
-        throw Tfc::TfcFileException("Failed to open file " + blobFilename + " for writing");
+        throw Tfc::Exception("Failed to open file " + blobFilename + " for writing");
     stream.write(blob->data, blob->record->getSize());
     stream.close();
 
