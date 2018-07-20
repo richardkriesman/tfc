@@ -14,6 +14,7 @@ cxx_library(
     exported_headers=subdir_glob([
         ('lib/portable_endian', 'portable_endian.h')
     ]),
+    compiler_flags = ['-std=c++11'],
     visibility=['PUBLIC']
 )
 
@@ -27,6 +28,7 @@ cxx_library(
     ('libtfc/extern', '**/*.h')
   ]),
   deps = [':xxhash', ':portable_endian'],
+  compiler_flags = ['-std=c++11'],
   visibility = ['PUBLIC']
 )
 
@@ -39,6 +41,7 @@ cxx_library(
   exported_headers = subdir_glob([
     ('tasker/extern', '**/*.h')
   ]),
+  compiler_flags = ['-std=c++11'],
   visibility = ['PUBLIC']
 )
 
@@ -56,6 +59,8 @@ cxx_binary(
     ':libtfc',
     ':tasker'
   ],
+  compiler_flags = ['-std=c++11'],
+  linker_flags = ['-pthread'],
   visibility = ['PUBLIC']
 )
 
@@ -73,6 +78,7 @@ cxx_binary(
     ':libtfc',
     ':tasker'
   ],
-  compiler_flags = ["-g"],
+  compiler_flags = ['-g', '-std=c++11'],
+  linker_flags = ['-pthread'],
   visibility = ['PUBLIC']
 )

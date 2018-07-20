@@ -62,7 +62,7 @@ void Loop::loop(Loop* loop) {
             if (handle->task->getState() == SUSPENDED) { // thread was resumed, resume it
                 handle->resume();
             } else { // new task, create a thread
-                std::thread thread(handle->exec, handle);
+                std::thread thread(&handle->exec, handle);
                 thread.detach();
             }
 
@@ -111,7 +111,7 @@ void Loop::loop(Loop* loop) {
  * Starts an event processing loop in a new detached thread. This function is non-blocking.
  */
 void Loop::start() {
-    std::thread thread(this->loop, this);
+    std::thread thread(&this->loop, this);
     thread.detach();
 }
 

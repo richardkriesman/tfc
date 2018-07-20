@@ -46,7 +46,7 @@ void TaskHandle::exec(TaskHandle* handle) {
     std::unique_lock<std::mutex> lock(handle->mutex);
 
     // run the task
-    handle->thread = new std::thread(handle->task->run, handle);
+    handle->thread = new std::thread(&handle->task->run, handle);
     lock.unlock();
     handle->thread->join();
 
