@@ -24,9 +24,9 @@
 #include <csignal>
 #include <mutex>
 #include <tasker/tasker.h>
-#include <libtfc/file.h>
-#include <tfc/terminal.h>
-#include <tfc/license.h>
+#include <tfc/file.h>
+#include "terminal.h"
+#include "license.h"
 
 #define VERSION "0.2.1"
 

@@ -19,8 +19,8 @@
 #include <chrono>
 #include <algorithm>
 #include <xxhash/xxhash.h>
-#include <portable_endian/portable_endian.h>
-#include <libtfc/file.h>
+#include <tfc/portable_endian.h>
+#include <tfc/file.h>
 
 using namespace Tfc;
 

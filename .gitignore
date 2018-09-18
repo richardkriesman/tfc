@@ -1,16 +1,3 @@
-# exclude
 .DS_Store
 .idea/
-bin/
-tmp/
-obj/
-
-# buckaroo
-.buckd/
-.buckconfig.local
-BUCKAROO_DEPS
-buckaroo/
-buck-out/
-
-# exclude exceptions
-!bin/.gitkeep
+cmake-build-debug

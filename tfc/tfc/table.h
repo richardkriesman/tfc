@@ -18,7 +18,7 @@
 #ifndef TFC_TABLE_H
 #define TFC_TABLE_H
 
-#include <libtfc/record.h>
+#include <tfc/record.h>
 
 namespace Tfc {
 

@@ -22,8 +22,8 @@
 #include <fstream>
 #include <arpa/inet.h>
 #include <chrono>
-#include <libtfc/exception.h>
-#include <libtfc/table.h>
+#include <tfc/exception.h>
+#include <tfc/table.h>
 
 namespace Tfc {
 

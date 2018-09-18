@@ -1,4 +1,0 @@
-[cxx]
-    cxxflags = -std=c++11 -m64 -pthread
-[http]
-    port = 0
