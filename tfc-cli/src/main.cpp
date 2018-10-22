@@ -48,7 +48,8 @@ void about();
 void await(Tasker::Task* task, const std::string &message);
 void help();
 std::string join(const std::vector<std::string> &strings, const std::string &delim);
-void license();
+int license();
+int license(std::string name);
 std::vector<std::string> parseInput(const std::string &input);
 void printBlobs(const std::vector<Tfc::BlobRecord*> &blobs);
 std::vector<std::string> split(const std::string &string, char delim);
@@ -110,8 +111,11 @@ int main(int argc, char** argv) {
         about();
         return 0;
     } else if(filename == "--license") {
-        license();
-        return 0;
+        if (argc > 2) {
+            return license(argv[2]);
+        } else {
+            return license();
+        }
     }
 
     // try to open a file
@@ -238,7 +242,11 @@ int main(int argc, char** argv) {
 
             // license command
             if (args[0] == "license") {
-                license();
+                if (args.size() > 1) {
+                    license(args[1]);
+                } else {
+                    license();
+                }
                 continue;
             }
 
@@ -464,7 +472,11 @@ void about() {
                  "https://richardkriesman.com\n\n"
                  "This program comes with ABSOLUTELY NO WARRANTY.\n"
                  "This is free software, and you are welcome to redistribute it\n"
-                 "under certain conditions. Type `license` for details.\n";
+                 "under certain conditions. Type `about license` for details.\n\n"
+                 "tfc-cli was made with help from the following third-party libraries:\n"
+                 "\txxhash\n"
+                 "\tPOCO\n"
+                 "You can type `license <name>` to view the license of any library.\n";
 }
 
 /**
@@ -568,8 +580,30 @@ std::string join(const std::vector<std::string> &strings, const std::string &del
 /**
  * Prints the license.
  */
-void license() {
+int license() {
     std::cout << LICENSE;
+    return 0;
+}
+
+/**
+ * Prints the license of a third-party library.
+ *
+ * @param name The name of the library
+ */
+int license(std::string name) {
+    std::transform(name.begin(), name.end(), name.begin(), ::tolower); // convert the name to lowercase for comparison
+
+    // check name
+    if (name == "xxhash") {
+        std::cout << XXHASH_LICENSE;
+        return 0;
+    } else if (name == "poco") {
+        std::cout << POCO_LICENSE;
+        return 0;
+    } else {
+        std::cout << Terminal::Symbols::CROSSMARK << " Invalid name\n";
+        return 1;
+    }
 }
 
 /**
