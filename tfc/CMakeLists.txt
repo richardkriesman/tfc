@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 11)
 # create binary project
 file(GLOB SRC_FILES src/*.cpp)
 file(GLOB HEADER_FILES tfc/*.h)
-add_library(tfc STATIC ${SRC_FILES} ${HEADER_FILES})
+add_library(tfc STATIC ${SRC_FILES} ${HEADER_FILES} src/file.cpp tfc/file.h src/engine/engine.cpp tfc/engine/engine.h src/engine/scribe.cpp tfc/engine/scribe.h)
 
 # create shared object library
 add_library(tfc-shared SHARED ${SRC_FILES} ${HEADER_FILES})
