@@ -25,12 +25,12 @@
 #include <tfc/exception.h>
 #include <tfc/table.h>
 #include <tfc/engine/engine.h>
-#include "editor.h"
+#include "file.h"
 
 namespace Tfc {
 
     struct Blob {
-        BlobRecord* record;
+        FileRecord* record;
         char* data;
     };
 
@@ -40,21 +40,24 @@ namespace Tfc {
     public:
         explicit Container(const std::string &filename);
 
+        ReadableFile* readFile(uint32_t nonce);
+
         uint32_t                 addBlob(const std::string &name, char* bytes, uint64_t size);
         void                     attachTag(uint32_t nonce, const std::string &tag);
         void                     deleteBlob(uint32_t nonce);
         bool                     doesExist();
-        OperationMode               getMode();
+        OperationMode            getMode();
         void                     init();
-        std::vector<BlobRecord*> intersection(const std::vector<std::string> &tags);
+        std::vector<FileRecord*> intersection(const std::vector<std::string> &tags);
         bool                     isEncrypted();
         bool                     isUnlocked();
-        std::vector<BlobRecord*> listBlobs();
+        std::vector<FileRecord*> listBlobs();
         std::vector<TagRecord*>  listTags();
         void                     mode(OperationMode mode);
         Blob*                    readBlob(uint32_t nonce);
 
     private:
+        Engine engine; // "engine" for reading/writing data from/to the container
 
         // constants
         const uint32_t CONTAINER_CONSTANT = 1;
@@ -63,8 +66,8 @@ namespace Tfc {
         // header field lengths (in bytes)
         const unsigned int BLOCK_DATA_SIZE       = 512;
         const unsigned int BLOCK_LIST_COUNT_SIZE = 4;
-        const unsigned int BLOCK_NEXT_SIZE       = 8;
-        const unsigned int BLOCK_SIZE            = 520;
+        const unsigned int BLOCK_NEXT_SIZE       = 4;
+        const unsigned int BLOCK_SIZE            = 516;
         const unsigned int DEK_LEN               = 32;
         const unsigned int FILE_VERSION_LEN      = 4;
         const unsigned int HASH_BUFFER_SIZE      = 64;
@@ -73,7 +76,7 @@ namespace Tfc {
         const unsigned int NONCE_LEN             = 4;
 
         // file vars
-        OperationMode op;          // current operation mode
+        OperationMode op;         // current operation mode
         std::string filename;     // name of the file
         std::fstream stream;      // file stream
         bool encrypted = false;   // whether the file is encrypted

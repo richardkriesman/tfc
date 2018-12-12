@@ -16,7 +16,7 @@ root {
 
         section block [] {
             field    512            stream     data
-            field    64             uint       next_pos
+            field    32             uint       next_nonce
         }
 
     }

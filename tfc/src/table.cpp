@@ -19,19 +19,19 @@
 
 using namespace Tfc;
 
-void BlobTable::add(BlobRecord* row) {
+void BlobTable::add(FileRecord* row) {
     this->map.insert({ row->getNonce(), row });
     this->_size++;
 }
 
-BlobRecord* BlobTable::get(uint32_t nonce) {
+FileRecord* BlobTable::get(uint32_t nonce) {
     auto row = this->map.find(nonce);
     if(row == this->map.end())
         return nullptr;
     return row->second;
 }
 
-void BlobTable::remove(BlobRecord *record) {
+void BlobTable::remove(FileRecord *record) {
     this->map.erase(record->getNonce());
     this->_size--;
 }
@@ -40,11 +40,11 @@ uint32_t BlobTable::size() {
     return this->_size;
 }
 
-std::map<uint32_t, BlobRecord *>::iterator BlobTable::begin() {
+std::map<uint32_t, FileRecord *>::iterator BlobTable::begin() {
     return this->map.begin();
 }
 
-std::map<uint32_t, BlobRecord *>::iterator BlobTable::end() {
+std::map<uint32_t, FileRecord *>::iterator BlobTable::end() {
     return this->map.end();
 }
 

@@ -25,17 +25,17 @@ namespace Tfc {
     class BlobTable {
 
     public:
-        void add(BlobRecord *row);
-        BlobRecord *get(uint32_t nonce);
-        void remove(BlobRecord* record);
+        void add(FileRecord *row);
+        FileRecord *get(uint32_t nonce);
+        void remove(FileRecord* record);
         uint32_t size();
 
-        std::map<uint32_t, BlobRecord *>::iterator begin();
-        std::map<uint32_t, BlobRecord *>::iterator end();
+        std::map<uint32_t, FileRecord *>::iterator begin();
+        std::map<uint32_t, FileRecord *>::iterator end();
 
     private:
         uint32_t _size = 0;
-        std::map<uint32_t, BlobRecord *> map;
+        std::map<uint32_t, FileRecord *> map;
 
     };
 

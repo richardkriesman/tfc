@@ -20,14 +20,14 @@
 
 #include <fstream>
 
-enum OperationMode {
-    CLOSED,
-    READ,
-    CREATE,
-    EDIT
-};
-
 namespace Tfc {
+
+    enum OperationMode {
+        CLOSED,
+        READ,
+        CREATE,
+        EDIT
+    };
 
     /**
      * The Scribe provides an simplified interface for reading and writing primitive data types to files.
@@ -38,6 +38,7 @@ namespace Tfc {
         explicit Scribe(const std::string &filename);
 
         uint64_t      getCursorPos();
+        std::string   getFilename();
         OperationMode getMode();
         void          readBytes(char* buf, std::streamsize len);
         std::string   readString();

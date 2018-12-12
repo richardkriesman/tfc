@@ -21,7 +21,7 @@
 #include <xxhash/xxhash.h>
 #include <tfc/portable_endian.h>
 #include <tfc/container.h>
-#include "editor.h"
+#include <tfc/engine/engine.h>
 
 using namespace Tfc;
 
@@ -37,7 +37,7 @@ using namespace Tfc;
  *
  * @param filename The path of the file on the disk
  */
-Container::Container(const std::string &filename){
+Container::Container(const std::string &filename) : engine(filename) {
     this->op = OperationMode::CLOSED;
     this->filename = filename;
 
@@ -137,7 +137,8 @@ uint32_t Container::addBlob(const std::string &name, char* bytes, uint64_t size)
             this->jump(lastBlockNextPos);
 
             // write start pos of selected block
-            this->writeUInt64(static_cast<uint64_t>(blockListDataStart + BLOCK_SIZE * selectedBlock));
+            // TODO: This part needs to write the index as a uint32_t now
+            this->writeUInt32(static_cast<uint64_t>(blockListDataStart + BLOCK_SIZE * selectedBlock));
 
         }
 
@@ -173,7 +174,7 @@ uint32_t Container::addBlob(const std::string &name, char* bytes, uint64_t size)
     uint64_t hash = this->hash(bytes, size);
 
     // create new record in blob table
-    auto* record = new BlobRecord(this->blobTableNextNonce++, name, hash, firstBlockPos, size);
+    auto* record = new FileRecord(this->blobTableNextNonce++, name, hash, firstBlockPos, size);
     this->blobTable->add(record);
 
     // rewrite the blob table
@@ -197,7 +198,7 @@ void Container::attachTag(uint32_t nonce, const std::string &tag) {
     std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
 
     // get the blob from the blob table
-    BlobRecord* blobRow = this->blobTable->get(nonce);
+    FileRecord* blobRow = this->blobTable->get(nonce);
     if(blobRow == nullptr)
         throw Exception("No blob was found with ID " + std::to_string(nonce));
 
@@ -250,7 +251,7 @@ void Container::deleteBlob(uint32_t nonce) {
         throw Exception("Container not in EDIT mode");
 
     // get the blob from the blob table
-    BlobRecord* blobRecord = this->blobTable->get(nonce);
+    FileRecord* blobRecord = this->blobTable->get(nonce);
     if (blobRecord == nullptr)
         throw Exception("No blob was found with ID " + std::to_string(nonce));
 
@@ -382,11 +383,11 @@ void Container::init() {
  * @param tags A vector of tags
  * @return A vector of BlobRecords whose tags contain all of the tags in the tags parameter.
  */
-std::vector<BlobRecord*> Container::intersection(const std::vector<std::string> &tags) {
+std::vector<FileRecord*> Container::intersection(const std::vector<std::string> &tags) {
     if(this->op != OperationMode::READ)
         throw Exception("Container not in READ mode");
 
-    std::vector<BlobRecord*> result; // set of intersecting BlobRecords
+    std::vector<FileRecord*> result; // set of intersecting BlobRecords
 
     // build a search set of TagRecords
     std::vector<TagRecord*> searchSet;
@@ -408,16 +409,16 @@ std::vector<BlobRecord*> Container::intersection(const std::vector<std::string> 
     std::sort(searchSet.begin(), searchSet.end(), TagRecord::asc);
 
     // build a union set of blob records (a set of blobs that have at least one of the tags)
-    auto* unionSet = new std::vector<BlobRecord*>();
+    auto* unionSet = new std::vector<FileRecord*>();
     for(const auto &tagRecord : searchSet) { // for each tag in search set
-        std::vector<BlobRecord*> blobs = *tagRecord->getBlobs(); // vector of blobs with this tag
-        std::sort(blobs.begin(), blobs.end(), BlobRecord::asc);
+        std::vector<FileRecord*> blobs = *tagRecord->getBlobs(); // vector of blobs with this tag
+        std::sort(blobs.begin(), blobs.end(), FileRecord::asc);
 
         // union blob with union set
-        auto* newUnionSet = new std::vector<BlobRecord*>(unionSet->size() + blobs.size()); // pointer to the new union set
-        std::vector<BlobRecord*>::iterator end;
+        auto* newUnionSet = new std::vector<FileRecord*>(unionSet->size() + blobs.size()); // pointer to the new union set
+        std::vector<FileRecord*>::iterator end;
         end = std::set_union(unionSet->begin(), unionSet->end(), blobs.begin(), blobs.end(), newUnionSet->begin(),
-                             BlobRecord::asc);
+                             FileRecord::asc);
 
         // resize new union set
         newUnionSet->resize(static_cast<unsigned long>(end - newUnionSet->begin()));
@@ -475,11 +476,11 @@ bool Container::isUnlocked() {
  *
  * @return A vector of pointers to the entries.
  */
-std::vector<BlobRecord*> Container::listBlobs() {
+std::vector<FileRecord*> Container::listBlobs() {
     if(this->op != OperationMode::READ)
         throw Exception("Container not in READ mode");
 
-    std::vector<BlobRecord*> rows;
+    std::vector<FileRecord*> rows;
     for (auto &iter : *this->blobTable)
         rows.push_back(iter.second);
 
@@ -565,6 +566,8 @@ void Container::mode(OperationMode mode) {
 /**
  * READ operation. Reads a blob with the specified nonce.
  *
+ * @deprecated Use readFile instead.
+ *
  * @param nonce The nonce of the blob to read.
  * @return A Blob struct containing the size and char* to the data. Null if the nonce does not exist.
  */
@@ -573,7 +576,7 @@ Blob* Container::readBlob(uint32_t nonce) {
         throw Exception("Container not in READ mode");
 
     // get the blob's record
-    BlobRecord* record = this->blobTable->get(nonce);
+    FileRecord* record = this->blobTable->get(nonce);
     if(record == nullptr)
         throw Exception("No blob was found with ID " + std::to_string(nonce));
 
@@ -616,6 +619,24 @@ Blob* Container::readBlob(uint32_t nonce) {
 
     return blob;
 
+}
+
+/**
+ * Reads a file from the container with the specified nonce.
+ *
+ * @param nonce
+ * @return
+ */
+ReadableFile* Tfc::Container::readFile(uint32_t nonce) {
+
+    // get file metadata
+    FileRecord* metadata = this->engine.getFileMetadata(nonce);
+    if (metadata == nullptr) {
+        throw Exception("No file exists with ID " + std::to_string(nonce));
+    }
+
+    // build and return the ReadableFile object
+    return new ReadableFile(&this->engine, metadata);
 }
 
 /*
@@ -748,7 +769,7 @@ void Container::analyze() {
                     uint64_t size = this->readUInt64();
 
                     // build blob record
-                    BlobRecord* blobRecord = new BlobRecord(nonce, name, hash, start, size);
+                    FileRecord* blobRecord = new FileRecord(nonce, name, hash, start, size);
 
                     // read tag count
                     uint32_t blobTagCount = this->readUInt32();
@@ -949,7 +970,7 @@ void Container::writeBlobTable() {
 
     // rewrite blob table entries
     for(auto &iter : *this->blobTable) {
-        BlobRecord* row = iter.second;
+        FileRecord* row = iter.second;
 
         // write nonce
         this->writeUInt32(row->getNonce());

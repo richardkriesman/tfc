@@ -20,6 +20,8 @@
 #include <tfc/engine/scribe.h>
 #include <tfc/portable_endian.h>
 
+using namespace Tfc;
+
 Tfc::Scribe::Scribe(const std::string &filename) {
     this->filename = filename;
     this->mode = OperationMode::CLOSED;
@@ -32,6 +34,13 @@ Tfc::Scribe::Scribe(const std::string &filename) {
  */
 uint64_t Tfc::Scribe::getCursorPos() {
     return static_cast<uint64_t>(this->stream.tellg());
+}
+
+/**
+ * @return The filename of the file.
+ */
+std::string Scribe::getFilename() {
+    return this->filename;
 }
 
 /**

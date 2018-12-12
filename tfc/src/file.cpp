@@ -17,6 +17,7 @@
  */
 
 #include <tfc/file.h>
+#include <tfc/exception.h>
 
 #include "tfc/file.h"
 
@@ -55,4 +56,41 @@ std::vector<TagRecord*> File::getTags() {
  */
 uint32_t File::getNonce() {
     return this->nonce;
+}
+
+/**
+ * Creates a new ReadableFile, which enables reading a file from the container.
+ */
+ReadableFile::ReadableFile(Engine* engine, FileRecord* metadata) {
+    this->engine = engine;
+    this->filename = metadata->getName();
+    this->hash = metadata->getHash();
+    this->size = metadata->getSize();
+    this->tags = *metadata->getTags();
+
+    this->remainingBytes = this->size;
+    this->index = 0; // TODO: Read *index*, not streampos
+}
+
+/**
+ * @return Whether the end of the file has been reached.
+ */
+bool ReadableFile::isEof() {
+    return this->remainingBytes > 0;
+}
+
+/**
+ * Reads exactly 512 bytes from the container, advancing the cursor by 1 block.
+ *
+ * @return The data content of the block, exactly 512 bytes in size.
+ */
+char* ReadableFile::readBlock() {
+    if (this->isEof()) {
+        throw Exception("End of file has been reached");
+    }
+
+    block_t* block = this->engine->readBlock(this->index);
+    this->index = block->nextBlock;
+    this->remainingBytes -= BLOCK_DATA_SIZE;
+    return block->data;
 }

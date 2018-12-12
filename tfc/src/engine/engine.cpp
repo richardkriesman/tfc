@@ -20,10 +20,73 @@
 #include <tfc/engine/scribe.h>
 #include <tfc/exception.h>
 
-Tfc::Engine::Engine(const std::string &filename) : scribe(filename) {
-    this->filename = filename;
+using namespace Tfc;
+
+Engine::Engine(const std::string &filename) : scribe(filename) {
     this->isEncrypted = false;
-    this->isUnlocked = false;
+    this->isUnlocked = true;
+}
+
+/**
+ * Closes the file, flushing the buffer to disk.
+ */
+void Engine::close() {
+    this->opLock.lock();
+    this->scribe.setMode(OperationMode::CLOSED);
+    this->opLock.unlock();
+}
+
+/**
+ * Retrieves metadata about a file in the container. If no file exists with that nonce, nullptr is
+ * returned.
+ *
+ * @param nonce
+ * @return The file's metadata, or nullptr if no such file exists.
+ */
+FileRecord* Engine::getFileMetadata(uint32_t nonce) {
+    this->opLock.lock();
+    if (this->scribe.getMode() != OperationMode::READ) {
+        this->scribe.setMode(OperationMode::READ);
+    }
+
+    FileRecord* record = this->fileTable->get(nonce);
+    this->opLock.unlock();
+    return record;
+}
+
+/**
+ * @return The filename of the container.
+ */
+std::string Engine::getFilename() {
+    return this->scribe.getFilename();
+}
+
+/**
+ * Reads 512 bytes of arbitrary data from a block at the specified position. If no such block exists,
+ * nullptr will be returned.
+ *
+ * @param index The index of the block from which data should be read.
+ * @return The bloc, with its data and tail sections.
+ */
+block_t* Engine::readBlock(uint32_t index) {
+    this->opLock.lock();
+    if (this->scribe.getMode() != OperationMode::READ) {
+        this->setMode(OperationMode::READ);
+    }
+
+    // block does not exist, return null
+    if (this->blockCount <= index) {
+        return nullptr;
+    }
+
+    // read data at index
+    this->moveToBlock(index);
+    auto* block = new block_t();
+    this->scribe.readBytes(block->data, BLOCK_DATA_SIZE);
+    block->nextBlock = this->scribe.readUInt32();
+
+    this->opLock.unlock();
+    return block;
 }
 
 /**
@@ -34,20 +97,28 @@ Tfc::Engine::Engine(const std::string &filename) : scribe(filename) {
  * block in the chain, this value should be 0.
  *
  * When writing to a block, the block must already be allocated in the container. If a block at the
- * specified index has not been allocated, it will overwrite whatever data is at that position.
+ * specified index has not been allocated, an exception will be thrown.
  *
  * @param index The index of the block to which data should be written.
  * @param data The 512 bytes of data to write. There must be exactly 512 bytes.
- * @param nextBlock The position of the next block in the chain of blocks composing a file. If
+ * @param nextBlock The index of the next block in the chain of blocks composing a file.
  */
-void Tfc::Engine::writeToBlock(uint32_t index, const char *data, uint64_t nextBlock) {
+void Engine::writeBlock(uint32_t index, const char *data, uint32_t nextBlock) {
+    this->opLock.lock();
     if (this->scribe.getMode() != OperationMode::EDIT) {
-        this->scribe.setMode(OperationMode::EDIT);
+        this->setMode(OperationMode::EDIT);
     }
 
+    // block is not allocated, throw exception
+    if (index >= blockCount) {
+        throw Exception("No block is allocated at index " + std::to_string(index));
+    }
+
+    // write data at index
     this->moveToBlock(index);
     this->scribe.writeBytes(data, BLOCK_DATA_SIZE); // data section
     this->scribe.writeUInt64(nextBlock);            // tail section
+    this->opLock.unlock();
 }
 
 /**
@@ -55,14 +126,14 @@ void Tfc::Engine::writeToBlock(uint32_t index, const char *data, uint64_t nextBl
  *
  * @param index The index of the block to move to.
  */
-void Tfc::Engine::moveToBlock(uint32_t index) {
+void Engine::moveToBlock(uint32_t index) {
     this->scribe.setCursorPos(this->blockPos + index * (BLOCK_DATA_SIZE + BLOCK_TAIL_SIZE));
 }
 
 /**
  * Moves the cursor to the beginning of the header.
  */
-void Tfc::Engine::moveToHeader() {
+void Engine::moveToHeader() {
     this->scribe.setCursorPos(0);
 }
 
@@ -73,7 +144,7 @@ void Tfc::Engine::moveToHeader() {
  * @param mode The mode to set.
  * @throw Exception Failed to open the file with the specified mode.
  */
-void Tfc::Engine::setMode(OperationMode mode) {
+void Engine::setMode(OperationMode mode) {
 
     // set the scribe's operation mode
     this->scribe.setMode(mode);
@@ -162,7 +233,7 @@ void Tfc::Engine::setMode(OperationMode mode) {
             uint64_t size = this->scribe.readUInt64();
 
             // build blob record
-            BlobRecord* file = new BlobRecord(nonce, name, hash, startPos, size);
+            FileRecord* file = new FileRecord(nonce, name, hash, startPos, size);
 
             // read in tags
             uint32_t tagCount = this->scribe.readUInt32();

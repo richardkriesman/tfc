@@ -42,8 +42,7 @@ bool Record::desc(Record* record1, Record* record2) {
     return record1->nonce > record2->nonce;
 }
 
-BlobRecord::BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start, uint64_t size)
-        : Record(nonce)  {
+FileRecord::FileRecord(uint32_t nonce, const std::string &name, uint64_t hash, uint32_t start, uint64_t size) : Record(nonce) {
     this->nonce = nonce;
     this->name = name;
     this->hash = hash;
@@ -51,7 +50,7 @@ BlobRecord::BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, s
     this->size = size;
 }
 
-void BlobRecord::addTag(Tfc::TagRecord* tag) {
+void FileRecord::addTag(Tfc::TagRecord* tag) {
     this->tags.push_back(tag);
 }
 
@@ -60,6 +59,6 @@ TagRecord::TagRecord(uint32_t nonce, const std::string &name) : Record(nonce) {
     this->name = name;
 }
 
-void TagRecord::addBlob(Tfc::BlobRecord *blob) {
-    this->blobs.push_back(blob);
+void TagRecord::addBlob(Tfc::FileRecord *blob) {
+    this->files.push_back(blob);
 }

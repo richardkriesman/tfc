@@ -46,14 +46,14 @@ namespace Tfc {
 
     };
 
-    class BlobRecord : public Record {
+    class FileRecord : public Record {
 
     public:
-        BlobRecord(uint32_t nonce, const std::string &name, uint64_t hash, std::streampos start, uint64_t size);
+        FileRecord(uint32_t nonce, const std::string &name, uint64_t hash, uint32_t start, uint64_t size);
 
         std::string getName() { return this->name; }
         uint64_t getHash() { return this->hash; }
-        std::streampos getStart() { return this->start; }
+        uint32_t getStart() { return this->start; }
         std::vector<Tfc::TagRecord*>* getTags() { return &this->tags; }
         uint64_t getSize() { return this->size; }
         void addTag(Tfc::TagRecord* tag);
@@ -62,7 +62,7 @@ namespace Tfc {
         std::string name;                   // original file name
         uint64_t hash;                      // file hash
         uint64_t size;                      // file size
-        std::streampos start;               // starting byte position of the blob
+        uint32_t start;                     // starting index of the file
         std::vector<Tfc::TagRecord* > tags; // vector of tag pointers
 
         friend class BlobTable;
@@ -75,13 +75,13 @@ namespace Tfc {
         TagRecord(uint32_t nonce, const std::string &name);
 
         const std::string getName() { return this->name; }
-        std::vector<Tfc::BlobRecord*>* getBlobs() { return &this->blobs; }
+        std::vector<Tfc::FileRecord*>* getBlobs() { return &this->files; }
 
-        void addBlob(Tfc::BlobRecord* blob);
+        void addBlob(Tfc::FileRecord* blob);
 
     private:
         std::string name;
-        std::vector<Tfc::BlobRecord*> blobs;
+        std::vector<Tfc::FileRecord*> files;
 
         friend class TagTable;
 

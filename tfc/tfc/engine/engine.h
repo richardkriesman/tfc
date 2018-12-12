@@ -27,24 +27,40 @@
 
 namespace Tfc {
 
+    // structure sizes
+    const unsigned int BLOCK_DATA_SIZE = 512;
+    const unsigned int BLOCK_TAIL_SIZE = sizeof(uint32_t);
+    const unsigned int HEADER_DEK_SIZE = 32;
+
+    /**
+     * A container data block, storing 512 bytes of arbitrary data.
+     */
+    typedef struct {
+        char data[512];     // 512-byte data section
+        uint32_t nextBlock; // index of next block in file
+    } block_t;
+
+    /**
+     * The Engine reads and writes high-level data structures to and from the container.
+     *
+     * Engines are thread-safe and automatically handle multiple operations simultaneously.
+     */
     class Engine {
 
     public:
         explicit Engine(const std::string &filename);
 
-        void writeToBlock(uint32_t index, const char data[512], uint64_t nextBlock);
+        void        close();
+        FileRecord* getFileMetadata(uint32_t nonce);
+        std::string getFilename();
+        block_t*    readBlock(uint32_t index);
+        void        writeBlock(uint32_t index, const char *data, uint32_t nextBlock);
 
     private:
         const uint32_t CONTAINER_VERSION = 1;
         const uint32_t MAGIC_NUMBER = 0xE621126E;
 
-        // structure sizes
-        const unsigned int BLOCK_DATA_SIZE = 512;
-        const unsigned int BLOCK_TAIL_SIZE = sizeof(std::streampos);
-        const unsigned int HEADER_DEK_SIZE = 32;
-
         // engine state
-        std::string    filename;    // name of container on disk
         bool           isEncrypted; // whether the file is encrypted
         bool           isUnlocked;  // whether the file has been unlocked and can be operated on
         std::mutex     opLock;      // mutex lock on operations
@@ -63,13 +79,13 @@ namespace Tfc {
         uint32_t fileNonce;  // nonce for the next entry in the file table
 
         // graph structures
-        TagTable* tagTable = nullptr;
+        TagTable*  tagTable  = nullptr;
         BlobTable* fileTable = nullptr;
 
         // functions
-        void        moveToBlock(uint32_t index);
-        void        moveToHeader();
-        void        setMode(OperationMode mode);
+        void moveToBlock(uint32_t index);
+        void moveToHeader();
+        void setMode(OperationMode mode);
     };
 
 
